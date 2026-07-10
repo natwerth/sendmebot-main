@@ -62,6 +62,24 @@
         margin-bottom: 18px;
       }
 
+      .schedule-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 96px;
+        gap: 8px;
+      }
+
+      .schedule-helper {
+        margin: -8px 0 18px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .schedule-error {
+        margin-top: 5px;
+        color: var(--error);
+      }
+
       label {
         display: block;
         margin-bottom: 8px;
@@ -284,18 +302,21 @@
       </div>
 
       <div id="scheduleFields" class="hidden">
-        <div class="field">
-          <label for="scheduleChoice">Schedule</label>
-          <select id="scheduleChoice" onchange="handleScheduleChange()">
-            <option value="today">Today</option>
-            <option value="start_minus_7">7 days before Start Date</option>
-            <option value="custom">Custom date</option>
-          </select>
+        <div class="schedule-row">
+          <div class="field">
+            <label for="scheduleDate">Send on</label>
+            <input id="scheduleDate" type="date">
+          </div>
+          <div class="field">
+            <label for="scheduleTime">at</label>
+            <input id="scheduleTime" type="time" step="60">
+          </div>
         </div>
 
-        <div id="customDateWrapper" class="field hidden">
-          <label for="customDate">Custom send date</label>
-          <input id="customDate" type="date">
+        <div class="schedule-helper">
+          <div id="scheduleTimeZone">Times use your browser timezone.</div>
+          <div>Scheduled emails are processed periodically and may send several minutes after the selected time.</div>
+          <div id="scheduleError" class="schedule-error hidden"></div>
         </div>
       </div>
 
@@ -328,7 +349,7 @@
 
         if (context.actionMode === "schedule") {
           document.getElementById("scheduleFields").classList.remove("hidden");
-          populateScheduleOptions(context.scheduleOptions || []);
+          initializeScheduleFields();
         }
 
         const submitButton = document.getElementById("submitButton");
@@ -522,27 +543,108 @@
         }
       }
 
-      function populateScheduleOptions(options) {
-        const select = document.getElementById("scheduleChoice");
-        select.innerHTML = "";
-
-        options.forEach(function(optionData) {
-          const option = document.createElement("option");
-          option.value = optionData.value;
-          option.textContent = optionData.label;
-          select.appendChild(option);
-        });
+      function padLocalDatePart(value) {
+        return String(value).padStart(2, "0");
       }
 
-      function handleScheduleChange() {
-        const scheduleChoice = document.getElementById("scheduleChoice").value;
-        const customDateWrapper = document.getElementById("customDateWrapper");
+      function formatLocalDateInputValue(date) {
+        return date.getFullYear() + "-" +
+          padLocalDatePart(date.getMonth() + 1) + "-" +
+          padLocalDatePart(date.getDate());
+      }
 
-        if (scheduleChoice === "custom") {
-          customDateWrapper.classList.remove("hidden");
-        } else {
-          customDateWrapper.classList.add("hidden");
+      function detectBrowserTimeZone() {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      }
+
+      function getFriendlyTimeZoneLabel(date, timeZone) {
+        const zone = timeZone || "your browser timezone";
+
+        try {
+          const longName = new Intl.DateTimeFormat(undefined, {
+            timeZoneName: "long"
+          }).formatToParts(date).find(part => part.type === "timeZoneName");
+          const shortName = new Intl.DateTimeFormat(undefined, {
+            timeZoneName: "short"
+          }).formatToParts(date).find(part => part.type === "timeZoneName");
+          const names = [longName && longName.value, shortName && shortName.value]
+            .filter(Boolean)
+            .filter((value, index, list) => list.indexOf(value) === index);
+
+          return names.length ? names.join(" (") + (names.length > 1 ? ")" : "") + " — " + zone : zone;
+        } catch (err) {
+          return zone;
         }
+      }
+
+      function formatScheduledDisplayText(date) {
+        try {
+          return new Intl.DateTimeFormat(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            timeZoneName: "short"
+          }).format(date);
+        } catch (err) {
+          return date.toString();
+        }
+      }
+
+      function createSchedulePayload(dateValue, timeValue, nowValue) {
+        const dateMatch = String(dateValue || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        const timeMatch = String(timeValue || "").match(/^(\d{2}):(\d{2})$/);
+
+        if (!dateMatch || !timeMatch) {
+          throw new Error("Choose a date and time.");
+        }
+
+        const selectedDate = new Date(
+          Number(dateMatch[1]),
+          Number(dateMatch[2]) - 1,
+          Number(dateMatch[3]),
+          Number(timeMatch[1]),
+          Number(timeMatch[2]),
+          0,
+          0
+        );
+
+        const matchesWallTime =
+          selectedDate.getFullYear() === Number(dateMatch[1]) &&
+          selectedDate.getMonth() === Number(dateMatch[2]) - 1 &&
+          selectedDate.getDate() === Number(dateMatch[3]) &&
+          selectedDate.getHours() === Number(timeMatch[1]) &&
+          selectedDate.getMinutes() === Number(timeMatch[2]);
+
+        if (!matchesWallTime || isNaN(selectedDate.getTime())) {
+          throw new Error("Choose a valid local date and time.");
+        }
+
+        const now = nowValue ? new Date(nowValue) : new Date();
+
+        if (selectedDate.getTime() <= now.getTime()) {
+          throw new Error("Scheduled time must be in the future.");
+        }
+
+        return {
+          scheduledForIso: selectedDate.toISOString(),
+          scheduledTimeZone: detectBrowserTimeZone(),
+          scheduledDisplayText: formatScheduledDisplayText(selectedDate)
+        };
+      }
+
+      function initializeScheduleFields() {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        document.getElementById("scheduleDate").value = formatLocalDateInputValue(tomorrow);
+        document.getElementById("scheduleTime").value = "08:03";
+
+        const timeZone = detectBrowserTimeZone();
+        document.getElementById("scheduleTimeZone").textContent =
+          "Selected date and time are interpreted in " +
+          getFriendlyTimeZoneLabel(new Date(), timeZone) + ".";
       }
 
       function submitForm() {
@@ -556,13 +658,7 @@
         const ccFields = getSelectedRecipientItems("cc");
         const bccFields = getSelectedRecipientItems("bcc");
 
-        const scheduleChoice = document.getElementById("scheduleChoice")
-          ? document.getElementById("scheduleChoice").value
-          : "";
-
-        const customDate = document.getElementById("customDate")
-          ? document.getElementById("customDate").value
-          : "";
+        let schedulePayload = {};
 
         if (!template) {
           setSubmitButtonState("failed", "Failed");
@@ -582,10 +678,21 @@
           return;
         }
 
-        if (action === "schedule" && scheduleChoice === "custom" && !customDate) {
-          setSubmitButtonState("failed", "Failed");
-          resetSubmitButtonAfterDelay();
-          return;
+        if (action === "schedule") {
+          try {
+            schedulePayload = createSchedulePayload(
+              document.getElementById("scheduleDate").value,
+              document.getElementById("scheduleTime").value
+            );
+            document.getElementById("scheduleError").classList.add("hidden");
+          } catch (err) {
+            const errorElement = document.getElementById("scheduleError");
+            errorElement.textContent = err.message;
+            errorElement.classList.remove("hidden");
+            setSubmitButtonState("failed", "Failed");
+            resetSubmitButtonAfterDelay();
+            return;
+          }
         }
 
         submitButton.disabled = true;
@@ -604,8 +711,9 @@
           toField: toField,
           ccFields: ccFields,
           bccFields: bccFields,
-          scheduleChoice: action === "schedule" ? scheduleChoice : "",
-          customDate: action === "schedule" ? customDate : ""
+          scheduledForIso: action === "schedule" ? schedulePayload.scheduledForIso : "",
+          scheduledTimeZone: action === "schedule" ? schedulePayload.scheduledTimeZone : "",
+          scheduledDisplayText: action === "schedule" ? schedulePayload.scheduledDisplayText : ""
         };
 
         google.script.run
@@ -670,15 +778,15 @@
         document.getElementById("sender").disabled = disabled;
         document.getElementById("toField").disabled = disabled;
 
-        const scheduleChoice = document.getElementById("scheduleChoice");
-        const customDate = document.getElementById("customDate");
+        const scheduleDate = document.getElementById("scheduleDate");
+        const scheduleTime = document.getElementById("scheduleTime");
 
-        if (scheduleChoice) {
-          scheduleChoice.disabled = disabled;
+        if (scheduleDate) {
+          scheduleDate.disabled = disabled;
         }
 
-        if (customDate) {
-          customDate.disabled = disabled;
+        if (scheduleTime) {
+          scheduleTime.disabled = disabled;
         }
 
         document.querySelectorAll(".recipient-chip, .mini-button").forEach(function(button) {

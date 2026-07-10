@@ -364,14 +364,6 @@ function stampTemplateColumn_(sheet, row, headers, key) {
 }
 
 
-function stampTemplateScheduled_(sheet, row, headers, key, scheduledDate) {
-  const col = getTemplateStatusColumn_(headers, key, true);
-  const formatted = Utilities.formatDate(scheduledDate, Session.getScriptTimeZone(), "M/d");
-
-  if (col) sheet.getRange(row, col).setValue("Scheduled for " + formatted);
-}
-
-
 function stampTemplateFailure_(sheet, row, headers, key) {
   const col = getTemplateStatusColumn_(headers, key, true);
   if (col) sheet.getRange(row, col).setValue("Error: Not Sent");
@@ -394,54 +386,64 @@ function logSentEmail_(ss, logData) {
 
   const headers = ensureLogHeaders_(logSheet);
 
-  const timestamp = Utilities.formatDate(
-    new Date(),
-    Session.getScriptTimeZone(),
-    "M/d/yyyy h:mm:ss a"
-  );
+  const timestamp = Object.prototype.hasOwnProperty.call(logData, "timestamp")
+    ? logData.timestamp
+    : Utilities.formatDate(
+      new Date(),
+      Session.getScriptTimeZone(),
+      "M/d/yyyy h:mm:ss a"
+    );
 
   logSheet.insertRowBefore(2);
 
   const rowData = {
     "Timestamp": timestamp,
+    "Status": logData.status || "",
+    "Scheduled For": logData.scheduledFor || "",
+    "Processed At": logData.processedAt || "",
+    "Message": logData.message || "",
     "Name": logData.name || "",
     "Recipient": logData.email || "",
+    "Sender": logData.sender || "",
     "CC": logData.cc || "",
     "BCC": logData.bcc || "",
     "Template": logData.template || "",
-    "Sender": logData.sender || "",
     "Subject": logData.subject || "",
-    "Status": logData.status || "",
-    "Message": logData.message || "",
     "Email Body": logData.body || "",
     "Attachments": logData.attachments || "",
     "Log Note": logData.logNote || ""
   };
 
+  const output = new Array(logSheet.getLastColumn()).fill("");
+
   Object.keys(rowData).forEach(header => {
     const col = headers[normalize_(header)];
-
-    if (col) {
-      logSheet.getRange(2, col).setValue(rowData[header]);
-    }
+    if (col) output[col - 1] = rowData[header];
   });
+
+  logSheet.getRange(2, 1, 1, output.length).setValues([output]);
+
+  return 2;
 }
 
 
 function ensureLogHeaders_(logSheet) {
   const expectedHeaders = [
     "Timestamp",
+    "Status",
+    "Scheduled For",
+    "Processed At",
+    "Message",
     "Name",
     "Recipient",
+    "Sender",
     "CC",
     "BCC",
     "Template",
-    "Sender",
     "Subject",
-    "Status",
-    "Message",
     "Email Body",
-    "Attachments"
+    "Attachments",
+    "Log Note"
   ];
 
   const lastCol = Math.max(logSheet.getLastColumn(), expectedHeaders.length);

@@ -41,12 +41,7 @@ function getSendFormOpenContext_(actionMode) {
     templates: templates,
     senders: senders,
     senderOptions: senderOptions,
-    recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates),
-    scheduleOptions: [
-      { value: "today", label: "Today" },
-      { value: "start_minus_7", label: "7 days before Start Date" },
-      { value: "custom", label: "Custom date" }
-    ]
+    recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates)
   };
 }
 
@@ -128,11 +123,6 @@ function buildFormOptionsCache_() {
   return {
     templates: templates,
     senders: senders,
-    scheduleOptions: [
-      { value: "today", label: "Today" },
-      { value: "start_minus_7", label: "7 days before Start Date" },
-      { value: "custom", label: "Custom date" }
-    ],
     refreshedAt: new Date().toISOString()
   };
 }
@@ -512,8 +502,9 @@ function queueSendFormJob(formData) {
   const toField = formData.toField || { value: "Email", valueType: "field" };
   const ccFields = Array.isArray(formData.ccFields) ? formData.ccFields : [];
   const bccFields = Array.isArray(formData.bccFields) ? formData.bccFields : [];
-  const scheduleChoice = normalize_(formData.scheduleChoice || "today");
-  const customDate = formData.customDate || "";
+  const scheduledForIso = String(formData.scheduledForIso || "").trim();
+  const scheduledTimeZone = String(formData.scheduledTimeZone || "").trim();
+  const scheduledDisplayText = String(formData.scheduledDisplayText || "").trim();
 
   if (!templateKey) throw new Error("Template is required.");
   if (!sender) throw new Error("Sender is required.");
@@ -521,6 +512,12 @@ function queueSendFormJob(formData) {
 
   if (action !== "send_now" && action !== "schedule") {
     throw new Error("Unknown action: " + formData.action);
+  }
+
+  if (action === "schedule") {
+    validateScheduledInstant_(scheduledForIso, new Date());
+    if (!scheduledTimeZone) throw new Error("Browser timezone is required for scheduling.");
+    if (!scheduledDisplayText) throw new Error("Scheduled display time is required.");
   }
 
   ensureTrackerColumnForTemplate_(templateKey);
@@ -539,8 +536,9 @@ function queueSendFormJob(formData) {
     toField: toField,
     ccFields: ccFields,
     bccFields: bccFields,
-    scheduleChoice: scheduleChoice,
-    customDate: customDate,
+    scheduledForIso: scheduledForIso,
+    scheduledTimeZone: scheduledTimeZone,
+    scheduledDisplayText: scheduledDisplayText,
     rows: selectedRows
   };
 
@@ -727,9 +725,7 @@ function processOneQueuedJob_(job) {
   }
 
   if (job.action === "schedule") {
-    ensureScheduledSendTrigger_();
-
-    const customDate = job.customDate ? parseUserDate_(job.customDate) : null;
+    const scheduledDate = parseScheduledInstant_(job.scheduledForIso);
 
     rows.forEach(row => {
       headers = getHeaders_(sheet);
@@ -741,8 +737,9 @@ function processOneQueuedJob_(job) {
         headers,
         job.template,
         job.sender,
-        job.scheduleChoice,
-        customDate,
+        scheduledDate,
+        job.scheduledTimeZone,
+        job.scheduledDisplayText,
         recipientConfig
       );
 
@@ -768,20 +765,32 @@ function processOneQueuedJob_(job) {
   throw new Error("Unknown queued action: " + job.action);
 }
 
-function ensureScheduledSendTrigger_() {
+function setupScheduledEmailTrigger() {
   const functionName = "sendScheduledEmails";
 
   const alreadyExists = ScriptApp.getProjectTriggers().some(trigger =>
     trigger.getHandlerFunction() === functionName
   );
 
-  if (alreadyExists) return;
+  if (alreadyExists) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      "Scheduled email processor trigger is already set up.",
+      "SendMeBot",
+      5
+    );
+    return;
+  }
 
   ScriptApp.newTrigger(functionName)
     .timeBased()
-    .everyDays(1)
-    .atHour(8)
+    .everyMinutes(5)
     .create();
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    "Scheduled emails will be checked every 5 minutes.",
+    "SendMeBot",
+    5
+  );
 }
 
 function setupJobProcessorTrigger() {
@@ -909,59 +918,69 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
 }
 
 // =============================================================================
-// Schedule selected
+// Schedule selected / Sent-sheet queue
 // =============================================================================
 
-function validateScheduledCell_(sheet, row, statusCol, scheduleData) {
-  const cell = sheet.getRange(row, statusCol);
-  const visibleValue = cell.getDisplayValue();
+function parseScheduledInstant_(isoValue) {
+  const raw = String(isoValue || "").trim();
+  const scheduledDate = new Date(raw);
 
-  if (!scheduleData || !scheduleData.scheduledDate) {
-    return "Missing schedule metadata.";
+  if (!raw || isNaN(scheduledDate.getTime())) {
+    throw new Error("Invalid scheduled datetime.");
   }
 
-  if (!String(scheduleData.sender || "").trim()) {
-    return "Missing sender in schedule metadata.";
-  }
-
-  const scheduledDate = new Date(scheduleData.scheduledDate);
-
-  if (isNaN(scheduledDate.getTime())) {
-    return "Invalid scheduledDate in metadata.";
-  }
-
-  const visibleDate = Utilities.formatDate(
-    scheduledDate,
-    Session.getScriptTimeZone(),
-    "M/d"
-  );
-
-  if (visibleValue !== "Scheduled for " + visibleDate) {
-    return (
-      "Cell says '" +
-      visibleValue +
-      "' but metadata says Scheduled for " +
-      visibleDate +
-      "."
-    );
-  }
-
-  return "";
+  return scheduledDate;
 }
 
-function debugNote_(sheet, row, col, label) {
-  const cell = sheet.getRange(row, col);
-  Logger.log(
-    label +
-    " | " +
-    sheet.getName() +
-    "!" +
-    cell.getA1Notation() +
-    " | value=" +
-    cell.getDisplayValue() +
-    " | noteLength=" +
-    String(cell.getNote() || "").length
-  );
+function validateScheduledInstant_(isoValue, nowValue) {
+  const scheduledDate = parseScheduledInstant_(isoValue);
+  const now = nowValue instanceof Date ? nowValue : new Date(nowValue || new Date());
+
+  if (isNaN(now.getTime())) throw new Error("Invalid current datetime.");
+  if (scheduledDate.getTime() <= now.getTime()) {
+    throw new Error("Scheduled time must be in the future.");
+  }
+
+  return scheduledDate;
+}
+
+function getFrozenDeliveryMetadata_(ss, sheet, row, statusColumn, template, payload, audit) {
+  const imageAssets = getImageAssets_(ss);
+  const inlineImageFileIds = {};
+
+  Object.keys(payload.inlineImages || {}).forEach(cid => {
+    const matchingAsset = Object.keys(imageAssets)
+      .map(key => imageAssets[key])
+      .find(asset => getAssetCid_(asset.name) === cid);
+    const fileId = matchingAsset ? extractDriveFileId_(matchingAsset.link) : "";
+    if (!fileId) throw new Error("Could not preserve an inline image for scheduled delivery.");
+    inlineImageFileIds[cid] = fileId;
+  });
+
+  const attachmentLinks = String(template.attachmentLink || "")
+    .split(/\n|,/)
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  const attachmentFileIds = attachmentLinks.map(link => {
+    const fileId = extractDriveFileId_(link);
+    if (!fileId) throw new Error("Could not preserve an attachment for scheduled delivery.");
+    return fileId;
+  });
+
+  return {
+    version: 2,
+    sourceSheet: sheet.getName(),
+    sourceRow: row,
+    sourceStatusColumn: statusColumn,
+    scheduledTimeZone: audit.scheduledTimeZone,
+    scheduledDisplayText: audit.scheduledDisplayText,
+    senderName: payload.senderName || "",
+    htmlBody: payload.htmlBody || "",
+    inlineImageFileIds: inlineImageFileIds,
+    attachmentFileIds: attachmentFileIds,
+    attachmentNames: payload.attachmentNames || ""
+  };
 }
 
 function scheduleOneRow_(
@@ -971,115 +990,198 @@ function scheduleOneRow_(
   headers,
   templateKey,
   sender,
-  scheduleChoice,
-  customDate,
+  scheduledDate,
+  scheduledTimeZone,
+  scheduledDisplayText,
   recipientConfig
 ) {
   const statusCol = headers["status"];
-
-  let recipients = {
-    to: "",
-    cc: "",
-    bcc: ""
-  };
-
-  let email = "";
-  const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
+  let queueRowWritten = false;
 
   try {
-    setStatus_(sheet, row, statusCol, "Scheduling...");
+    if (!(scheduledDate instanceof Date) || isNaN(scheduledDate.getTime())) {
+      throw new Error("Invalid scheduled datetime.");
+    }
 
-    recipients = resolveRecipientsForRow_(
-      sheet,
-      row,
-      headers,
-      recipientConfig
-    );
+    if (normalize_(Session.getActiveUser().getEmail()) !== normalize_(sender)) {
+      throw new Error("Failed: Sender does not match the active user. Ask Nat for help.");
+    }
 
-    email = recipients.to;
+    const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
+    const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
+    if (!recipients.to) throw new Error("Missing recipient email.");
 
-    if (!email) throw new Error("Missing recipient email.");
+    const templateSheet = ss.getSheetByName("Templates");
+    if (!templateSheet) throw new Error("Missing Templates sheet.");
 
-    const scheduledDate = getScheduledDateForRow_(
-      sheet,
-      row,
-      headers,
-      scheduleChoice,
-      customDate
-    );
-
+    const template = getTemplateByKey_(templateSheet, templateKey);
+    const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
     const statusHeaderCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
-
-    stampTemplateScheduled_(sheet, row, getHeaders_(sheet), templateKey, scheduledDate);
-    debugNote_(sheet, row, statusHeaderCol, "After stampTemplateScheduled_");
-
-    saveScheduledEmailData_(sheet, row, statusHeaderCol, {
-      template: templateKey,
-      sender: sender,
-      scheduledDate: scheduledDate.toISOString(),
-      recipientConfig: recipientConfig || {
-        sender: sender,
-        toField: { value: "Email", valueType: "field" },
-        ccFields: [],
-        bccFields: []
+    const metadata = getFrozenDeliveryMetadata_(
+      ss,
+      sheet,
+      row,
+      statusHeaderCol,
+      template,
+      payload,
+      {
+        scheduledTimeZone: scheduledTimeZone,
+        scheduledDisplayText: scheduledDisplayText
       }
-    });
-    debugNote_(sheet, row, statusHeaderCol, "After saveScheduledEmailData_");
-
-    setStatus_(sheet, row, statusCol, "Scheduled");
-    debugNote_(sheet, row, statusHeaderCol, "After setStatus_");
+    );
 
     logSentEmail_(ss, {
-      name,
-      email,
-      cc: recipients.cc,
-      bcc: recipients.bcc,
-      template: templateKey,
-      sender,
-      subject: "",
+      timestamp: new Date(),
       status: "Scheduled",
-      message:
-        "Email scheduled for " +
-        Utilities.formatDate(scheduledDate, Session.getScriptTimeZone(), "M/d/yyyy"),
-      sourceRow: row,
-      body: "",
-      attachments: ""
-    });
-
-    debugNote_(sheet, row, statusHeaderCol, "After logSentEmail_");
-
-    return "scheduled";
-
-  } catch (err) {
-    stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
-    setStatus_(sheet, row, statusCol, "Failed");
-
-    logSentEmail_(ss, {
-      name,
-      email,
+      scheduledFor: new Date(scheduledDate.getTime()),
+      processedAt: "",
+      message: "Email scheduled for " + scheduledDisplayText + ".",
+      name: name,
+      email: recipients.to,
+      sender: sender,
       cc: recipients.cc,
       bcc: recipients.bcc,
       template: templateKey,
-      sender,
-      subject: "",
-      status: "Failed",
-      message: err.message || "Scheduling failed.",
-      sourceRow: row,
-      body: "",
-      attachments: ""
+      subject: payload.subject,
+      body: payload.plainBody,
+      attachments: payload.attachmentNames || "",
+      logNote: JSON.stringify(metadata)
     });
+    queueRowWritten = true;
 
-    Logger.log("SCHEDULE ERROR row " + row + ": " + err.message);
+    const visibleScheduledDate = Utilities.formatDate(
+      scheduledDate,
+      ss.getSpreadsheetTimeZone(),
+      "M/d"
+    );
+    sheet.getRange(row, statusHeaderCol).setValue("Scheduled for " + visibleScheduledDate);
+    setStatus_(sheet, row, statusCol, "Scheduled");
+    return "scheduled";
+  } catch (err) {
+    if (!queueRowWritten) {
+      stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
+      setStatus_(sheet, row, statusCol, "Failed");
+    } else {
+      Logger.log(
+        "SCHEDULE TRACKER UPDATE ERROR row " + row +
+        ": queue row was written and will still be processed. " + (err.message || err)
+      );
+      return "scheduled";
+    }
+
+    Logger.log("SCHEDULE ERROR row " + row + ": " + (err.message || err));
     return "failed";
   }
 }
 
-// =============================================================================
-// Scheduled send trigger runner
-// =============================================================================
-
+// The trigger event is intentionally ignored. There is no force-send path.
 function sendScheduledEmails() {
   return processScheduledEmails_();
+}
+
+function getRequiredSentQueueHeaders_(sheet) {
+  const headers = getHeaders_(sheet);
+  [
+    "status", "scheduled for", "processed at", "message", "recipient",
+    "sender", "cc", "bcc", "template", "subject", "email body", "attachments", "log note"
+  ].forEach(header => {
+    if (!headers[header]) throw new Error("Missing Sent header: " + header + ".");
+  });
+  return headers;
+}
+
+function parseScheduledLogNote_(value) {
+  let metadata;
+
+  try {
+    metadata = JSON.parse(String(value || ""));
+  } catch (err) {
+    throw new Error("Scheduled row has invalid delivery metadata.");
+  }
+
+  if (!metadata || metadata.version !== 2) {
+    throw new Error("Scheduled row has unsupported delivery metadata.");
+  }
+
+  return metadata;
+}
+
+function getScheduledBlobs_(metadata, getFileBlob) {
+  const loadBlob = getFileBlob || function(fileId) {
+    return DriveApp.getFileById(fileId).getBlob();
+  };
+  const inlineImages = {};
+
+  Object.keys(metadata.inlineImageFileIds || {}).forEach(cid => {
+    inlineImages[cid] = loadBlob(metadata.inlineImageFileIds[cid]);
+  });
+
+  return {
+    inlineImages: inlineImages,
+    attachments: (metadata.attachmentFileIds || []).map(loadBlob)
+  };
+}
+
+function updateSentQueueRow_(sheet, row, rowValues, headers, updates) {
+  Object.keys(updates).forEach(header => {
+    const col = headers[normalize_(header)];
+    if (col) rowValues[col - 1] = updates[header];
+  });
+  sheet.getRange(row, 1, 1, rowValues.length).setValues([rowValues]);
+}
+
+function validateScheduledSourceTracker_(ss, metadata, templateKey) {
+  const sourceSheet = ss.getSheetByName(String(metadata.sourceSheet || ""));
+  const sourceRow = Number(metadata.sourceRow);
+  const sourceCol = Number(metadata.sourceStatusColumn);
+
+  if (!sourceSheet) {
+    return { state: "orphaned", reason: "source sheet no longer exists" };
+  }
+
+  if (!Number.isInteger(sourceRow) || sourceRow < 2 || sourceRow > sourceSheet.getLastRow()) {
+    return { state: "orphaned", reason: "source row no longer exists" };
+  }
+
+  if (!Number.isInteger(sourceCol) || sourceCol < 1 || sourceCol > sourceSheet.getLastColumn()) {
+    return { state: "orphaned", reason: "source status column no longer exists" };
+  }
+
+  const currentHeaders = getHeaders_(sourceSheet);
+  if (getTemplateStatusColumn_(currentHeaders, templateKey, false) !== sourceCol) {
+    return { state: "orphaned", reason: "template-specific source status column no longer exists" };
+  }
+
+  const currentValue = sourceSheet.getRange(sourceRow, sourceCol).getDisplayValue();
+  if (currentValue.indexOf("Scheduled for ") !== 0) {
+    return { state: "cancelled", reason: "tracker status was cleared or changed" };
+  }
+
+  return { state: "valid" };
+}
+
+function updateScheduledSourceTracker_(ss, metadata, templateKey, outcome) {
+  const sourceSheet = ss.getSheetByName(String(metadata.sourceSheet || ""));
+  const sourceRow = Number(metadata.sourceRow);
+  const sourceCol = Number(metadata.sourceStatusColumn);
+
+  if (!sourceSheet || sourceRow < 2 || sourceRow > sourceSheet.getLastRow()) return false;
+  if (sourceCol < 1 || sourceCol > sourceSheet.getLastColumn()) return false;
+
+  const current = sourceSheet.getRange(sourceRow, sourceCol).getDisplayValue();
+  const currentHeaders = getHeaders_(sourceSheet);
+  if (getTemplateStatusColumn_(currentHeaders, templateKey, false) !== sourceCol) return false;
+  if (current.indexOf("Scheduled for ") !== 0) return false;
+
+  const trackerHeaders = currentHeaders;
+  if (outcome === "Sent") {
+    stampTemplateColumn_(sourceSheet, sourceRow, trackerHeaders, templateKey);
+    setStatus_(sourceSheet, sourceRow, trackerHeaders["status"], "Sent");
+  } else {
+    stampTemplateFailure_(sourceSheet, sourceRow, trackerHeaders, templateKey);
+    setStatus_(sourceSheet, sourceRow, trackerHeaders["status"], "Failed");
+  }
+  return true;
 }
 
 function processScheduledEmails_(options) {
@@ -1088,80 +1190,154 @@ function processScheduledEmails_(options) {
   const summary = {
     sent: 0,
     failed: 0,
+    cancelled: 0,
+    orphaned: 0,
     skipped: 0,
     locked: false
   };
 
   if (!lock.tryLock(30000)) {
     summary.locked = true;
-    Logger.log("SCHEDULED SEND SKIPPED: another scheduled send is already running.");
     return summary;
   }
 
   try {
     const ss = runtime.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = runtime.sheet || getTrackerSheet_();
-    const templateSheet = runtime.templateSheet || ss.getSheetByName("Templates");
+    const sentSheet = runtime.sentSheet || ss.getSheetByName("Sent");
+    if (!sentSheet) throw new Error("Missing Sent sheet.");
 
-    if (!sheet) throw new Error("Missing Tracker sheet.");
-    if (!templateSheet) throw new Error("Missing Templates sheet.");
-
-    const headers = getHeaders_(sheet);
-    const values = sheet.getDataRange().getValues();
-    const statusColumns = getTemplateStatusColumns_(headers);
+    const headers = getRequiredSentQueueHeaders_(sentSheet);
+    const values = sentSheet.getDataRange().getValues();
+    const now = runtime.now ? new Date(runtime.now) : new Date();
     const effectiveUser = Object.prototype.hasOwnProperty.call(runtime, "effectiveUser")
       ? String(runtime.effectiveUser || "")
       : Session.getEffectiveUser().getEmail();
-    const sendEmail = runtime.sendEmail || sendScheduledEmail_;
-    const today = runtime.now ? new Date(runtime.now) : new Date();
-
-    today.setHours(0, 0, 0, 0);
+    const sendEmail = runtime.sendEmail || function(message) { MailApp.sendEmail(message); };
 
     for (let r = 1; r < values.length; r++) {
+      const rowValues = values[r].slice();
       const row = r + 1;
+      if (rowValues[headers["status"] - 1] !== "Scheduled") continue;
 
-      statusColumns.forEach(statusInfo => {
-        const cellValue = values[r][statusInfo.col - 1];
-        if (!isScheduledStatus_(cellValue)) return;
+      const scheduledFor = rowValues[headers["scheduled for"] - 1];
+
+      if (!(scheduledFor instanceof Date) || isNaN(scheduledFor.getTime())) {
+        const invalidMessage = "Scheduled For must be a valid spreadsheet datetime.";
+        updateSentQueueRow_(sentSheet, row, rowValues, headers, {
+          "Status": "Failed",
+          "Processed At": new Date(now.getTime()),
+          "Message": invalidMessage
+        });
+        summary.failed++;
+        continue;
+      }
+
+      if (scheduledFor.getTime() > now.getTime()) {
+        summary.skipped++;
+        continue;
+      }
+
+      let delivered = false;
+
+      try {
+        const metadata = parseScheduledLogNote_(rowValues[headers["log note"] - 1]);
+        const sourceValidation = validateScheduledSourceTracker_(
+          ss,
+          metadata,
+          rowValues[headers["template"] - 1]
+        );
+
+        if (sourceValidation.state === "orphaned") {
+          updateSentQueueRow_(sentSheet, row, rowValues, headers, {
+            "Status": "Orphaned",
+            "Processed At": new Date(now.getTime()),
+            "Message": "Scheduled email was not sent because its " + sourceValidation.reason + "."
+          });
+          summary.orphaned++;
+          continue;
+        }
+
+        if (sourceValidation.state === "cancelled") {
+          updateSentQueueRow_(sentSheet, row, rowValues, headers, {
+            "Status": "Cancelled",
+            "Processed At": new Date(now.getTime()),
+            "Message": "Scheduled email was cancelled because the tracker status was cleared or changed."
+          });
+          summary.cancelled++;
+          continue;
+        }
+
+        const sender = String(rowValues[headers["sender"] - 1] || "").trim();
+        const recipient = String(rowValues[headers["recipient"] - 1] || "").trim();
+        if (!recipient) throw new Error("Scheduled row is missing Recipient.");
+        if (!sender) throw new Error("Scheduled row is missing Sender.");
+        if (normalize_(effectiveUser) !== normalize_(sender)) {
+          throw new Error("Trigger owner does not match the scheduled sender.");
+        }
+
+        sentSheet.getRange(row, headers["status"]).setValue("Processing");
+        SpreadsheetApp.flush();
+
+        const blobs = getScheduledBlobs_(metadata, runtime.getFileBlob);
+
+        sendEmail({
+          to: recipient,
+          cc: String(rowValues[headers["cc"] - 1] || ""),
+          bcc: String(rowValues[headers["bcc"] - 1] || ""),
+          subject: String(rowValues[headers["subject"] - 1] || ""),
+          body: String(rowValues[headers["email body"] - 1] || ""),
+          htmlBody: String(metadata.htmlBody || ""),
+          inlineImages: blobs.inlineImages,
+          attachments: blobs.attachments,
+          name: String(metadata.senderName || sender)
+        });
+        delivered = true;
+
+        updateSentQueueRow_(sentSheet, row, rowValues, headers, {
+          "Status": "Sent",
+          "Processed At": new Date(now.getTime()),
+          "Message": "Scheduled email sent successfully."
+        });
+        try {
+          updateScheduledSourceTracker_(
+            ss,
+            metadata,
+            rowValues[headers["template"] - 1],
+            "Sent"
+          );
+        } catch (trackerErr) {
+          Logger.log("SCHEDULED TRACKER UPDATE ERROR row " + row + ": " + trackerErr.message);
+        }
+        summary.sent++;
+      } catch (err) {
+        if (delivered) {
+          Logger.log("SCHEDULED FINALIZATION ERROR row " + row + ": " + (err.message || err));
+          continue;
+        }
+
+        const failureMessage = "Scheduled email failed: " + (err.message || err);
+        updateSentQueueRow_(sentSheet, row, rowValues, headers, {
+          "Status": "Failed",
+          "Processed At": new Date(now.getTime()),
+          "Message": failureMessage
+        });
 
         try {
-          processScheduledEmailCell_({
-            ss: ss,
-            sheet: sheet,
-            templateSheet: templateSheet,
-            headers: headers,
-            row: row,
-            statusInfo: statusInfo,
-            today: today,
-            effectiveUser: effectiveUser,
-            sendEmail: sendEmail,
-            summary: summary
-          });
-        } catch (err) {
-          summary.failed++;
-          Logger.log(
-            "SCHEDULED CELL ERROR row " +
-            row +
-            ", column " +
-            statusInfo.col +
-            ": " +
-            (err.message || err)
+          const metadata = parseScheduledLogNote_(rowValues[headers["log note"] - 1]);
+          updateScheduledSourceTracker_(
+            ss,
+            metadata,
+            rowValues[headers["template"] - 1],
+            "Failed"
           );
+        } catch (trackerErr) {
+          Logger.log("SCHEDULED TRACKER UPDATE ERROR row " + row + ": " + trackerErr.message);
         }
-      });
-    }
 
-    ss.toast(
-      "Scheduled send run complete. Sent: " +
-        summary.sent +
-        ". Failed: " +
-        summary.failed +
-        ". Skipped: " +
-        summary.skipped +
-        ".",
-      "SendMeBot",
-      8
-    );
+        summary.failed++;
+        Logger.log("SCHEDULED SEND ERROR row " + row + ": " + (err.message || err));
+      }
+    }
 
     return summary;
   } finally {
@@ -1169,206 +1345,112 @@ function processScheduledEmails_(options) {
   }
 }
 
-function processScheduledEmailCell_(context) {
-  const sheet = context.sheet;
-  const row = context.row;
-  const statusInfo = context.statusInfo;
-  const summary = context.summary;
-  let scheduleData = null;
-  let recipientConfig = null;
-  let recipients = { to: "", cc: "", bcc: "" };
-  let name = "";
-  let email = "";
+// Manual migration only. It never sends mail or creates/changes triggers.
+function migrateLegacyScheduledNotesToSentQueue() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getTrackerSheet_();
+  const templateSheet = ss.getSheetByName("Templates");
+  if (!sheet) throw new Error("Missing Tracker sheet.");
+  if (!templateSheet) throw new Error("Missing Templates sheet.");
 
-  try {
-    scheduleData = getScheduledEmailData_(sheet, row, statusInfo.col);
+  const headers = getHeaders_(sheet);
+  const values = sheet.getDataRange().getDisplayValues();
+  const notes = sheet.getDataRange().getNotes();
+  const statusColumns = getTemplateStatusColumns_(headers);
+  const report = { migrated: 0, invalid: 0, details: [] };
 
-    const scheduleProblem = validateScheduledCell_(
-      sheet,
-      row,
-      statusInfo.col,
-      scheduleData
-    );
+  for (let r = 1; r < values.length; r++) {
+    statusColumns.forEach(statusInfo => {
+      const rawNote = String(notes[r][statusInfo.col - 1] || "").trim();
+      if (!rawNote) return;
 
-    if (scheduleProblem) {
-      markScheduledCellBroken_(sheet, row, statusInfo.col, scheduleProblem);
-      summary.skipped++;
-      return;
-    }
+      const location = sheet.getName() + "!" + sheet.getRange(r + 1, statusInfo.col).getA1Notation();
 
-    const scheduledDate = new Date(scheduleData.scheduledDate);
+      try {
+        const legacy = JSON.parse(rawNote);
+        const scheduledDate = new Date(legacy.scheduledDate);
+        if (!legacy.template || !legacy.sender || isNaN(scheduledDate.getTime())) {
+          throw new Error("missing template, sender, or valid scheduledDate");
+        }
 
-    if (!isScheduledEmailDue_(scheduledDate, context.today)) return;
+        const expectedVisible = "Scheduled for " + Utilities.formatDate(
+          scheduledDate,
+          Session.getScriptTimeZone(),
+          "M/d"
+        );
+        if (values[r][statusInfo.col - 1] !== expectedVisible) {
+          throw new Error("visible schedule does not match note metadata");
+        }
+        if (getTemplateStatusColumn_(headers, legacy.template, false) !== statusInfo.col) {
+          throw new Error("template does not match the noted status column");
+        }
+        if (normalize_(legacy.sender) !== normalize_(Session.getActiveUser().getEmail())) {
+          throw new Error("scheduled sender does not match the active user");
+        }
 
-    if (normalize_(context.effectiveUser) !== normalize_(scheduleData.sender)) {
-      summary.skipped++;
-      Logger.log(
-        "SCHEDULED SEND SKIPPED row " +
-        row +
-        ", column " +
-        statusInfo.col +
-        ": trigger owner does not match scheduled sender."
-      );
-      return;
-    }
+        const recipientConfig = legacy.recipientConfig || {
+          sender: legacy.sender,
+          toField: { value: "Email", valueType: "field" },
+          ccFields: [],
+          bccFields: []
+        };
+        const recipients = resolveRecipientsForRow_(sheet, r + 1, headers, recipientConfig);
+        if (!recipients.to) throw new Error("missing recipient email");
 
-    recipientConfig = scheduleData.recipientConfig || {
-      sender: scheduleData.sender || "",
-      toField: { value: "Email", valueType: "field" },
-      ccFields: [],
-      bccFields: []
-    };
+        const template = getTemplateByKey_(templateSheet, legacy.template);
+        const payload = buildEmailPayload_(ss, sheet, r + 1, headers, template, legacy.sender);
+        const displayText = Utilities.formatDate(
+          scheduledDate,
+          Session.getScriptTimeZone(),
+          "M/d/yyyy h:mm a z"
+        );
+        const metadata = getFrozenDeliveryMetadata_(
+          ss,
+          sheet,
+          r + 1,
+          statusInfo.col,
+          template,
+          payload,
+          {
+            scheduledTimeZone: Session.getScriptTimeZone(),
+            scheduledDisplayText: displayText
+          }
+        );
 
-    if (!recipientConfig.sender) {
-      recipientConfig.sender = scheduleData.sender || "";
-    }
+        logSentEmail_(ss, {
+          timestamp: new Date(),
+          status: "Scheduled",
+          scheduledFor: scheduledDate,
+          processedAt: "",
+          message: "Migrated legacy schedule for " + displayText + ".",
+          name: getRecipientNameForRow_(ss, sheet, r + 1, headers, recipientConfig),
+          email: recipients.to,
+          sender: legacy.sender,
+          cc: recipients.cc,
+          bcc: recipients.bcc,
+          template: legacy.template,
+          subject: payload.subject,
+          body: payload.plainBody,
+          attachments: payload.attachmentNames || "",
+          logNote: JSON.stringify(metadata)
+        });
 
-    name = getRecipientNameForRow_(
-      context.ss,
-      sheet,
-      row,
-      context.headers,
-      recipientConfig
-    );
-
-    recipients = resolveRecipientsForRow_(
-      sheet,
-      row,
-      context.headers,
-      recipientConfig
-    );
-
-    email = recipients.to;
-    if (!email) throw new Error("Missing recipient email.");
-
-    const statusCol = context.headers["status"];
-
-    setStatus_(sheet, row, statusCol, "Sending scheduled email...");
-    sheet.getRange(row, statusInfo.col).setValue("Sending scheduled email...");
-    SpreadsheetApp.flush();
-
-    const template = getTemplateByKey_(context.templateSheet, scheduleData.template);
-    const payload = buildEmailPayload_(
-      context.ss,
-      sheet,
-      row,
-      context.headers,
-      template,
-      scheduleData.sender
-    );
-
-    context.sendEmail({
-      to: recipients.to,
-      cc: recipients.cc,
-      bcc: recipients.bcc,
-      subject: payload.subject,
-      body: payload.plainBody,
-      htmlBody: payload.htmlBody,
-      inlineImages: payload.inlineImages,
-      attachments: payload.attachments,
-      name: payload.senderName
+        sheet.getRange(r + 1, statusInfo.col).clearNote();
+        report.migrated++;
+      } catch (err) {
+        report.invalid++;
+        report.details.push(location + ": " + (err.message || err));
+      }
     });
-
-    stampTemplateColumn_(sheet, row, context.headers, scheduleData.template);
-    deleteScheduledEmailData_(sheet, row, statusInfo.col);
-    setStatus_(sheet, row, statusCol, "Sent");
-
-    logSentEmail_(context.ss, {
-      name: name,
-      email: email,
-      cc: recipients.cc,
-      bcc: recipients.bcc,
-      template: scheduleData.template,
-      sender: scheduleData.sender,
-      subject: payload.subject,
-      status: "Sent",
-      message: "Scheduled email sent successfully.",
-      sourceRow: row,
-      body: payload.plainBody,
-      attachments: payload.attachmentNames || ""
-    });
-
-    summary.sent++;
-  } catch (err) {
-    if (!scheduleData) {
-      markScheduledCellBroken_(
-        sheet,
-        row,
-        statusInfo.col,
-        err.message || "Scheduled email metadata could not be read."
-      );
-      summary.skipped++;
-      return;
-    }
-
-    handleScheduledEmailFailure_(context, scheduleData, recipients, name, email, err);
-    summary.failed++;
-  }
-}
-
-function markScheduledCellBroken_(sheet, row, col, reason) {
-  try {
-    sheet.getRange(row, col).setValue("Schedule Broken");
-  } catch (statusErr) {
-    Logger.log(
-      "SCHEDULE BROKEN STATUS ERROR row " +
-      row +
-      ", column " +
-      col +
-      ": " +
-      statusErr.message
-    );
   }
 
-  Logger.log(
-    "SCHEDULE BROKEN row " +
-    row +
-    ", column " +
-    col +
-    ": " +
-    reason
+  report.details.forEach(detail => Logger.log("LEGACY SCHEDULE NOT MIGRATED: " + detail));
+  ss.toast(
+    "Legacy schedules migrated: " + report.migrated + ". Invalid/ambiguous: " + report.invalid + ".",
+    "SendMeBot",
+    10
   );
-}
-
-function handleScheduledEmailFailure_(context, scheduleData, recipients, name, email, err) {
-  const row = context.row;
-
-  try {
-    stampTemplateFailure_(context.sheet, row, context.headers, scheduleData.template);
-  } catch (statusErr) {
-    Logger.log("SCHEDULED SEND TEMPLATE STATUS ERROR row " + row + ": " + statusErr.message);
-  }
-
-  try {
-    setStatus_(context.sheet, row, context.headers["status"], "Failed");
-  } catch (statusErr) {
-    Logger.log("SCHEDULED SEND STATUS ERROR row " + row + ": " + statusErr.message);
-  }
-
-  try {
-    logSentEmail_(context.ss, {
-      name: name,
-      email: email,
-      cc: recipients.cc,
-      bcc: recipients.bcc,
-      template: scheduleData.template,
-      sender: scheduleData.sender,
-      subject: "",
-      status: "Failed",
-      message: err.message || "Scheduled email failed.",
-      sourceRow: row,
-      body: "",
-      attachments: ""
-    });
-  } catch (logErr) {
-    Logger.log("SCHEDULED SEND LOG ERROR row " + row + ": " + logErr.message);
-  }
-
-  Logger.log("SCHEDULED SEND ERROR row " + row + ": " + (err.message || err));
-}
-
-function sendScheduledEmail_(message) {
-  MailApp.sendEmail(message);
+  return report;
 }
 
 // =============================================================================
@@ -1548,109 +1630,4 @@ function applyTextStyleHtml_(htmlText, style, linkUrl) {
   }
 
   return output;
-}
-
-// =============================================================================
-// Date helpers
-// =============================================================================
-
-function isScheduledEmailDue_(scheduledDate, today) {
-  const dueDate = new Date(scheduledDate);
-  const currentDate = new Date(today);
-
-  if (isNaN(dueDate.getTime())) throw new Error("Invalid scheduled date.");
-  if (isNaN(currentDate.getTime())) throw new Error("Invalid current date.");
-
-  dueDate.setHours(0, 0, 0, 0);
-  currentDate.setHours(0, 0, 0, 0);
-
-  return dueDate <= currentDate;
-}
-
-function getScheduledDateForRow_(sheet, row, headers, scheduleChoice, customDate) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  if (!scheduleChoice || scheduleChoice === "today") return today;
-
-  if (scheduleChoice === "custom") {
-    if (!(customDate instanceof Date)) throw new Error("Invalid custom date.");
-    customDate.setHours(0, 0, 0, 0);
-    return customDate;
-  }
-
-  if (scheduleChoice === "start_minus_7") {
-    const startDateCol = headers["start date"];
-    if (!startDateCol) throw new Error("Missing Start Date column.");
-
-    const startDate = sheet.getRange(row, startDateCol).getValue();
-    if (!(startDate instanceof Date)) throw new Error("Missing or invalid Start Date.");
-
-    const scheduledDate = new Date(startDate);
-    scheduledDate.setDate(scheduledDate.getDate() - 7);
-    scheduledDate.setHours(0, 0, 0, 0);
-
-    return scheduledDate;
-  }
-
-  throw new Error("Unknown schedule option: " + scheduleChoice);
-}
-
-function parseUserDate_(value) {
-  const raw = String(value || "").trim();
-
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-  if (match) {
-    const year = Number(match[1]);
-    const month = Number(match[2]) - 1;
-    const day = Number(match[3]);
-
-    return new Date(year, month, day, 0, 0, 0, 0);
-  }
-
-  const parsed = new Date(raw);
-  if (isNaN(parsed.getTime())) return null;
-
-  parsed.setHours(0, 0, 0, 0);
-  return parsed;
-}
-
-// =============================================================================
-// Scheduled metadata
-// =============================================================================
-
-function saveScheduledEmailData_(sheet, row, statusCol, data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const freshSheet = ss.getSheetByName(sheet.getName());
-  const cell = freshSheet.getRange(row, statusCol);
-  const json = JSON.stringify(data);
-
-  cell.setNote(json);
-  SpreadsheetApp.flush();
-
-  Logger.log(
-    "Immediately after setNote(): " +
-    JSON.stringify(cell.getNote())
-  );
-}
-
-function getScheduledEmailData_(sheet, row, statusCol) {
-  const raw = sheet.getRange(row, statusCol).getNote();
-
-  if (!raw) return null;
-
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    throw new Error("Scheduled email metadata note is invalid JSON.");
-  }
-}
-
-function deleteScheduledEmailData_(sheet, row, statusCol) {
-  sheet.getRange(row, statusCol).clearNote();
-}
-
-function isScheduledStatus_(value) {
-  return normalize_(value).startsWith("scheduled for ");
 }

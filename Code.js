@@ -15,137 +15,9 @@ function onOpen() {
 }
 
 function onEdit(e) {
-  if (!e || !e.range) return;
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const range = e.range;
-  const sheet = range.getSheet();
-
-  if (sheet.getName() !== getTrackerSheet_().getName()) return;
-
-  const headers = getHeaders_(sheet);
-  const statusColumns = getTemplateStatusColumns_(headers).map(info => info.col);
-
-  const startRow = range.getRow();
-  const startCol = range.getColumn();
-  const numRows = range.getNumRows();
-  const numCols = range.getNumColumns();
-  const values = range.getDisplayValues();
-
-  let brokenCount = 0;
-  let fakeScheduledCount = 0;
-
-  for (let r = 0; r < numRows; r++) {
-    const row = startRow + r;
-    if (row === 1) continue;
-
-    for (let c = 0; c < numCols; c++) {
-      const col = startCol + c;
-
-      if (statusColumns.indexOf(col) === -1) continue;
-
-      const cellValue = values[r][c];
-      const scheduleData = getScheduledEmailData_(sheet, row, col);
-
-      if (scheduleData) {
-        unscheduleCellFromManualEdit_(
-          ss,
-          sheet,
-          row,
-          col,
-          headers,
-          scheduleData,
-          "Scheduled email was unscheduled because the tracking cell was manually edited."
-        );
-
-        brokenCount++;
-        continue;
-      }
-
-      if (isScheduledStatus_(cellValue)) {
-        const cell = sheet.getRange(row, col);
-
-        cell.setValue("Error: Schedule Broken");
-        SpreadsheetApp.flush();
-
-        Utilities.sleep(1500);
-
-        if (cell.getDisplayValue() === "Error: Schedule Broken") {
-          cell.clearContent();
-        }
-
-        fakeScheduledCount++;
-
-        Logger.log(
-          "SCHEDULE BROKEN: scheduled text without metadata at row " +
-          row +
-          ", col " +
-          col
-        );
-      }
-    }
-  }
-
-  if (brokenCount || fakeScheduledCount) {
-    let message = "";
-
-    if (brokenCount && fakeScheduledCount) {
-      message = "Some scheduled email cells were changed or entered without schedule data. Affected cells were cleared.";
-    } else if (brokenCount) {
-      message = "Scheduled email removed and logged in Sent.";
-    } else {
-      message = "Scheduled-looking text was entered without schedule data and cleared.";
-    }
-
-    ss.toast(message, "SendMeBot", 8);
-  }
-}
-
-function unscheduleCellFromManualEdit_(ss, sheet, row, col, headers, scheduleData, reason) {
-  const cell = sheet.getRange(row, col);
-
-  const recipientConfig = scheduleData.recipientConfig || {
-    sender: scheduleData.sender || "",
-    toField: { value: "Email", valueType: "field" },
-    ccFields: [],
-    bccFields: []
-  };
-
-  let name = "";
-  let recipients = { to: "", cc: "", bcc: "" };
-
-  try {
-    name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
-    recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
-  } catch (err) {
-    Logger.log("UNSCHEDULE LOG RECIPIENT ERROR row " + row + ": " + err.message);
-  }
-
-  logSentEmail_(ss, {
-    name: name,
-    email: recipients.to,
-    cc: recipients.cc,
-    bcc: recipients.bcc,
-    template: scheduleData.template || "",
-    sender: scheduleData.sender || Session.getActiveUser().getEmail(),
-    subject: "",
-    status: "Unscheduled",
-    message: reason || "Scheduled email was unscheduled by manual edit.",
-    sourceRow: row,
-    body: "",
-    attachments: "",
-    logNote: "Schedule metadata note was cleared from " + cell.getA1Notation() + "."
-  });
-
-  cell.setValue("Error: Schedule Broken");
-  cell.clearNote();
-  SpreadsheetApp.flush();
-
-  Utilities.sleep(1500);
-
-  if (cell.getDisplayValue() === "Error: Schedule Broken") {
-    cell.clearContent();
-  }
+  // Scheduling no longer stores metadata in tracker-cell notes. Retain this
+  // simple-trigger entry point as a no-op for existing spreadsheet bindings.
+  return;
 }
 
 // Keeps old installable edit triggers from breaking.
@@ -172,7 +44,7 @@ function openSendMeBotForm_(actionMode) {
   const html = template
     .evaluate()
     .setWidth(300)
-    .setHeight(actionMode === "schedule" ? 315 : 235);
+    .setHeight(actionMode === "schedule" ? 430 : 235);
 
   const title = actionMode === "schedule"
     ? "Schedule selected"
