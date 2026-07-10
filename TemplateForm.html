@@ -1,0 +1,2366 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+
+    <style>
+      :root {
+        --google-blue: #0b57d0;
+        --akamai-blue: #0099cc;
+        --akamai-orange: #ff9933;
+        --akamai-navy: #002b49;
+        --signature-charcoal: #666666;
+        --black: #1f1f1f;
+        --google-blue-hover-bg: #eef2fb;
+        --text-primary: #1f1f1f;
+        --text-secondary: #5f6368;
+        --placeholder: #9aa0a6;
+        --border: #dadce0;
+        --focus-blue: #1a73e8;
+        --error: #b3261e;
+        --success: #137333;
+        --chip-bg: #f8fafd;
+        --chip-border: #d2e3fc;
+        --panel-bg: #f8fafd;
+        --overlay-bg: rgba(32, 33, 36, 0.38);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        font-family: "Roboto", Arial, sans-serif;
+        color: var(--text-primary);
+        background: #ffffff;
+      }
+
+      .wrap {
+        padding: 0;
+      }
+
+      .intro {
+        margin-bottom: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: #3c4043;
+      }
+
+      input,
+      .editor {
+        width: 100%;
+        background: #ffffff;
+        color: var(--text-primary);
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+      }
+
+      input {
+        height: 36px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      input::placeholder {
+        color: var(--placeholder);
+      }
+
+      input:focus::placeholder {
+        color: transparent;
+      }
+
+      .editor {
+        padding: 10px;
+        line-height: 1.45;
+        outline: none;
+        overflow: auto;
+        white-space: pre-wrap;
+        border: none;
+        border-radius: 0;
+      }
+
+      #subjectEditor {
+        min-height: 38px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      #bodyEditor {
+        min-height: 255px;
+        max-height: 340px;
+      }
+
+      input:focus,
+      #subjectEditor:focus {
+        border: 2px solid var(--focus-blue);
+        outline: none;
+      }
+
+      .composer-shell:focus-within {
+        border: 2px solid var(--focus-blue);
+      }
+
+      .editor:empty:not(:focus)::before {
+        content: attr(data-placeholder);
+        color: var(--placeholder);
+      }
+
+      .editor a {
+        color: var(--google-blue);
+        text-decoration: underline;
+      }
+
+      .editor.loading {
+        pointer-events: none;
+        position: relative;
+        color: transparent;
+      }
+
+      .editor.loading::before {
+        content: none !important;
+      }
+
+      .editor.loading .skeleton-line {
+        display: block;
+        height: 10px;
+        margin: 0 0 10px;
+        border-radius: 999px;
+        background: linear-gradient(
+          90deg,
+          rgba(218, 220, 224, 0.65),
+          rgba(232, 234, 237, 0.95),
+          rgba(218, 220, 224, 0.65)
+        );
+        background-size: 180% 100%;
+        animation: skeletonShimmer 1.8s ease-in-out infinite;
+      }
+
+      .editor.loading .skeleton-line.short {
+        width: 42%;
+      }
+
+      .editor.loading .skeleton-line.medium {
+        width: 68%;
+      }
+
+      .editor.loading .skeleton-line.long {
+        width: 92%;
+      }
+
+      #subjectEditor.loading {
+        display: flex;
+        align-items: center;
+      }
+
+      #subjectEditor.loading .skeleton-line {
+        width: 55%;
+        margin: 0;
+      }
+
+      #bodyEditor.loading {
+        padding-top: 14px;
+      }
+
+      @keyframes skeletonShimmer {
+        0% {
+          background-position: 160% 0;
+        }
+
+        100% {
+          background-position: -160% 0;
+        }
+      }
+
+      .field-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+
+      .field-header label {
+        margin-bottom: 0;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        position: relative;
+      }
+
+      .toolbar-button {
+        min-width: 0;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 14px;
+        background: #ffffff;
+        color: var(--google-blue);
+        border: 1px solid var(--chip-border);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .toolbar-button:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .toolbar-divider {
+        width: 1px;
+        height: 20px;
+        background: var(--border);
+      }
+
+      .color-menu-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+
+      .color-swatch {
+        min-width: 0;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 999px;
+        border: 1px solid var(--chip-border);
+        background: #ffffff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .color-swatch::before {
+        content: "";
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        display: block;
+        background: var(--current-swatch-color, var(--error));
+      }
+
+      .color-swatch:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .color-menu {
+        position: absolute;
+        top: 34px;
+        right: 0;
+        display: none;
+        min-width: 148px;
+        padding: 6px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #ffffff;
+        box-shadow: 0 4px 14px rgba(60, 64, 67, 0.22);
+        z-index: 20;
+      }
+
+      .color-menu.open {
+        display: block;
+      }
+
+      .color-menu-option {
+        width: 100%;
+        min-width: 0;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: 8px;
+        background: #ffffff;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 500;
+        text-align: left;
+      }
+
+      .color-menu-option:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .color-menu-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--dot-color);
+      }
+
+      .composer-shell {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #ffffff;
+      }
+
+      .insert-tray {
+        border-top: 1px solid var(--border);
+        background: var(--panel-bg);
+        padding: 10px;
+      }
+
+      .insert-tray-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .insert-helper {
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .segmented-control {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        background: #eaf1fb;
+      }
+
+      .segment-button {
+        min-width: 0;
+        height: 26px;
+        padding: 0 10px;
+        border: none;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .segment-button:hover {
+        color: var(--google-blue);
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .segment-button.active {
+        background: #ffffff;
+        color: var(--google-blue);
+        box-shadow: 0 1px 2px rgba(60, 64, 67, 0.18);
+      }
+
+      .chips,
+      .template-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .chip,
+      .template-pill {
+        min-width: 0;
+        height: 28px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        padding: 0 10px;
+        background: #ffffff;
+        color: var(--google-blue);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .chip:hover,
+      .template-pill:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .template-pill.active {
+        background: var(--google-blue-hover-bg);
+        border-color: var(--google-blue);
+        color: var(--google-blue);
+        font-weight: 700;
+      }
+
+      .editing-note {
+        display: none;
+        margin: -4px 0 14px;
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .editing-note strong {
+        color: var(--text-primary);
+      }
+
+      .empty-state {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .token {
+        display: inline;
+        padding: 0;
+        margin: 0;
+        border: none;
+        border-radius: 0;
+        color: var(--google-blue);
+        font-weight: 700;
+        background: transparent;
+        white-space: nowrap;
+      }
+
+      .token-image {
+        display: inline-block;
+        max-width: 100%;
+        margin: 8px 0;
+        padding: 6px;
+        border: 1px solid var(--chip-border);
+        border-radius: 10px;
+        background: var(--chip-bg);
+        vertical-align: middle;
+        user-select: none;
+      }
+
+      .token-image img {
+        display: block;
+        width: auto;
+        max-width: 100%;
+        height: auto;
+        border-radius: 6px;
+        pointer-events: none;
+      }
+
+      .token-image-missing {
+        display: inline-block;
+        padding: 4px 8px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        color: var(--google-blue);
+        font-size: 12px;
+        font-weight: 700;
+        background: #ffffff;
+      }
+
+      .token-image-label {
+        display: block;
+        margin-top: 6px;
+        color: var(--google-blue);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .message {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+
+      .error {
+        color: var(--error);
+      }
+
+      .status {
+        color: var(--success);
+      }
+
+      .button-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        min-width: 64px;
+        height: 36px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 18px;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      button.secondary,
+      button.primary {
+        background: #ffffff;
+        color: var(--google-blue);
+      }
+
+      button.secondary:hover,
+      button.primary:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      button:disabled {
+        background: #f1f3f4;
+        color: #9aa0a6;
+        cursor: not-allowed;
+      }
+
+      .link-overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--overlay-bg);
+        z-index: 9999;
+      }
+
+      .link-overlay.open {
+        display: flex;
+      }
+
+      .link-modal {
+        width: 100%;
+        max-width: 420px;
+        border-radius: 12px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(60, 64, 67, 0.28);
+        padding: 18px;
+      }
+
+      .link-modal-title {
+        margin: 0 0 14px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .link-modal .field {
+        margin-bottom: 12px;
+      }
+
+      .link-modal input {
+        height: 38px;
+      }
+
+      .link-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+
+      <div id="templatePickerField" class="field" style="display:none;">
+        <label>Choose template</label>
+        <div id="templatePills" class="template-pills"></div>
+      </div>
+
+      <div id="editingNote" class="editing-note">
+        Editing: <strong id="editingTemplateName"></strong>
+      </div>
+
+      <div id="templateNameField" class="field">
+        <label for="templateName">Template name</label>
+        <input id="templateName" type="text" placeholder="Intro Email">
+      </div>
+
+      <div class="field">
+        <label for="subjectEditor">Subject</label>
+        <div
+          id="subjectEditor"
+          class="editor"
+          contenteditable="true"
+          data-placeholder="Welcome to Akamai, Name"
+        ></div>
+      </div>
+
+      <div class="field">
+        <div class="field-header">
+          <label for="bodyEditor">Body</label>
+          <div class="toolbar">
+            <button type="button" class="toolbar-button" onclick="openLinkModal()">+ Link</button>
+            <button type="button" class="toolbar-button" onclick="toggleBold()">Bold</button>
+            <button type="button" class="toolbar-button" onclick="adjustFontSize(-1)">A−</button>
+            <button type="button" class="toolbar-button" onclick="adjustFontSize(1)">A+</button>
+
+            <span class="toolbar-divider"></span>
+
+            <div class="color-menu-wrap">
+              <button
+                id="colorMenuButton"
+                type="button"
+                class="color-swatch"
+                title="Text color"
+                aria-label="Text color"
+                onclick="toggleColorMenu(event)"
+                style="--current-swatch-color: var(--error);"
+              ></button>
+
+              <div id="colorMenu" class="color-menu">
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#1f1f1f')">
+                  <span class="color-menu-dot" style="--dot-color:#1f1f1f;"></span>
+                  Black
+                </button>
+
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#b3261e')">
+                  <span class="color-menu-dot" style="--dot-color:#b3261e;"></span>
+                  Red
+                </button>
+
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#0099cc')">
+                  <span class="color-menu-dot" style="--dot-color:#0099cc;"></span>
+                  Akamai blue
+                </button>
+
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#ff9933')">
+                  <span class="color-menu-dot" style="--dot-color:#ff9933;"></span>
+                  Akamai orange
+                </button>
+
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#002b49')">
+                  <span class="color-menu-dot" style="--dot-color:#002b49;"></span>
+                  Akamai navy
+                </button>
+
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#666666')">
+                  <span class="color-menu-dot" style="--dot-color:#666666;"></span>
+                  Charcoal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer-shell">
+          <div
+            id="bodyEditor"
+            class="editor"
+            contenteditable="true"
+            data-placeholder="Write your email body here"
+          ></div>
+
+          <div class="insert-tray">
+            <div class="insert-tray-top">
+              <div class="segmented-control" role="tablist" aria-label="Insert options">
+                <button id="tab-row" type="button" class="segment-button active" onclick="showInsertTab('row')">Tracker fields</button>
+                <button id="tab-sender" type="button" class="segment-button" onclick="showInsertTab('sender')">Sender</button>
+                <button id="tab-image" type="button" class="segment-button" onclick="showInsertTab('image')">Images</button>
+              </div>
+
+              <div class="insert-helper">Insert variables</div>
+            </div>
+
+            <div id="rowVariableChips" class="chips"></div>
+            <div id="senderVariableChips" class="chips" style="display:none;"></div>
+            <div id="imageVariableChips" class="chips" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="message status"></div>
+      <div id="error" class="message error"></div>
+
+      <div class="button-row">
+        <button class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button id="saveButton" class="primary" onclick="saveTemplate()">Save</button>
+      </div>
+    </div>
+
+    <div id="linkOverlay" class="link-overlay" onclick="handleLinkOverlayClick(event)">
+      <div class="link-modal" role="dialog" aria-modal="true" aria-labelledby="linkModalTitle">
+        <div id="linkModalTitle" class="link-modal-title">Insert link</div>
+
+        <div class="field">
+          <label for="linkTextInput">Text to display</label>
+          <input id="linkTextInput" type="text" placeholder="Akamai careers">
+        </div>
+
+        <div class="field">
+          <label for="linkUrlInput">Link</label>
+          <input id="linkUrlInput" type="text" placeholder="https://example.com">
+        </div>
+
+        <div id="linkModalError" class="message error"></div>
+
+        <div class="link-modal-actions">
+          <button type="button" class="secondary" onclick="closeLinkModal()">Cancel</button>
+          <button type="button" class="primary" onclick="applyLinkFromModal()">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const context = <?!= contextJson ?>;
+      const RED_COLOR = "#b3261e";
+      const FORM_MODE = context.mode || "new";
+
+      let activeEditorId = "bodyEditor";
+      let activeLinkElement = null;
+      let selectedOriginalTemplateName = "";
+      let normalizeTimer = null;
+
+      const imageAssetMap = {};
+      (context.imageAssets || []).forEach(function(asset) {
+        imageAssetMap[normalizeKey(asset.name)] = asset;
+      });
+
+      const validVariableSet = {};
+      const allVariables = []
+        .concat(context.rowVariables || [])
+        .concat(context.senderVariables || [])
+        .concat((context.imageAssets || []).map(function(asset) {
+          return asset.name || "";
+        }))
+        .filter(Boolean);
+
+      allVariables.forEach(function(name) {
+        validVariableSet[name] = true;
+      });
+
+      const sortedVariables = allVariables
+        .slice()
+        .sort(function(a, b) {
+          return b.length - a.length;
+        });
+
+      function initializeComposer() {
+        setupModeUI();
+
+        setupEditor("subjectEditor", true);
+        setupEditor("bodyEditor", false);
+        setupToolbarFocusProtection();
+
+        populateChips("rowVariableChips", context.rowVariables || [], "text");
+        populateChips("senderVariableChips", context.senderVariables || [], "text");
+        populateChips(
+          "imageVariableChips",
+          (context.imageAssets || []).map(function(asset) {
+            return asset.name;
+          }),
+          "image"
+        );
+
+        setupLinkModalKeyboard();
+        setupColorMenuDismiss();
+
+        normalizeEditorVariables(document.getElementById("subjectEditor"));
+        normalizeEditorVariables(document.getElementById("bodyEditor"));
+      }
+
+      function setupColorMenuDismiss() {
+        document.addEventListener("click", function(event) {
+          const menuWrap = document.querySelector(".color-menu-wrap");
+
+          if (!menuWrap || menuWrap.contains(event.target)) {
+            return;
+          }
+
+          closeColorMenu();
+        });
+      }
+
+      function setupModeUI() {
+        const templatePickerField = document.getElementById("templatePickerField");
+        const templateNameField = document.getElementById("templateNameField");
+        const saveButton = document.getElementById("saveButton");
+
+        if (FORM_MODE === "edit") {
+          templatePickerField.style.display = "block";
+          templateNameField.style.display = "none";
+          saveButton.disabled = true;
+          renderTemplatePills();
+          return;
+        }
+
+        templatePickerField.style.display = "none";
+        templateNameField.style.display = "block";
+        saveButton.disabled = false;
+      }
+
+      function renderTemplatePills() {
+        const container = document.getElementById("templatePills");
+        container.innerHTML = "";
+
+        const templates = context.templates || [];
+
+        if (!templates.length) {
+          const empty = document.createElement("p");
+          empty.className = "empty-state";
+          empty.textContent = "No templates found.";
+          container.appendChild(empty);
+          return;
+        }
+
+        templates.forEach(function(templateName) {
+          const pill = document.createElement("button");
+          pill.type = "button";
+          pill.className = "template-pill";
+          pill.textContent = templateName;
+          pill.dataset.templateName = templateName;
+          pill.onclick = function() {
+            selectTemplateForEditing(templateName);
+          };
+          container.appendChild(pill);
+        });
+      }
+
+      function selectTemplateForEditing(templateName) {
+        clearMessages();
+
+        selectedOriginalTemplateName = templateName;
+
+        document.querySelectorAll(".template-pill").forEach(function(pill) {
+          pill.classList.toggle("active", pill.dataset.templateName === templateName);
+        });
+
+        document.getElementById("editingTemplateName").textContent = templateName;
+        document.getElementById("editingNote").style.display = "block";
+
+        const saveButton = document.getElementById("saveButton");
+        saveButton.disabled = true;
+        saveButton.textContent = "Loading...";
+
+        setEditorsLoading(true);
+
+        google.script.run
+          .withSuccessHandler(function(templateData) {
+            document.getElementById("templateName").value = templateData.name || templateName;
+
+            setEditorsLoading(false);
+
+            setEditorFromTemplateHtml(
+              document.getElementById("subjectEditor"),
+              templateData.subject || ""
+            );
+
+            setEditorFromTemplateHtml(
+              document.getElementById("bodyEditor"),
+              templateData.body || ""
+            );
+
+            saveButton.disabled = false;
+            saveButton.textContent = "Save";
+
+            setTimeout(function() {
+              placeCaretAtEnd(document.getElementById("bodyEditor"));
+            }, 0);
+          })
+          .withFailureHandler(function(error) {
+            setEditorsLoading(false);
+            showError(error.message);
+            saveButton.disabled = true;
+            saveButton.textContent = "Save";
+          })
+          .getTemplateForEditor(templateName);
+      }
+
+      function setEditorsLoading(isLoading) {
+        const subjectEditor = document.getElementById("subjectEditor");
+        const bodyEditor = document.getElementById("bodyEditor");
+
+        if (isLoading) {
+          subjectEditor.innerHTML = '<span class="skeleton-line"></span>';
+
+          bodyEditor.innerHTML = [
+            '<span class="skeleton-line long"></span>',
+            '<span class="skeleton-line medium"></span>',
+            '<span class="skeleton-line long"></span>',
+            '<span class="skeleton-line short"></span>'
+          ].join("");
+
+          [subjectEditor, bodyEditor].forEach(function(editor) {
+            editor.classList.add("loading");
+            editor.setAttribute("contenteditable", "false");
+          });
+
+          return;
+        }
+
+        [subjectEditor, bodyEditor].forEach(function(editor) {
+          editor.classList.remove("loading");
+          editor.setAttribute("contenteditable", "true");
+          editor.innerHTML = "";
+        });
+      }
+
+      function setupEditor(id, singleLine) {
+        const editor = document.getElementById(id);
+
+        editor.addEventListener("focus", function() {
+          activeEditorId = id;
+          saveCurrentSelection();
+        });
+
+        editor.addEventListener("click", function() {
+          activeEditorId = id;
+          saveCurrentSelectionSoon();
+        });
+
+        editor.addEventListener("keyup", function(event) {
+          activeEditorId = id;
+          saveCurrentSelectionSoon();
+
+          if (event.key !== "Enter") {
+            normalizeEditorVariablesSoon(editor);
+          }
+        });
+
+        editor.addEventListener("mouseup", function() {
+          activeEditorId = id;
+          saveCurrentSelectionSoon();
+        });
+
+        editor.addEventListener("paste", function(event) {
+          event.preventDefault();
+
+          activeEditorId = id;
+
+          const text = (event.clipboardData || window.clipboardData).getData("text/plain");
+          insertPlainTextAtCursor(text);
+
+          normalizeEditorVariablesSoon(editor);
+          saveCurrentSelectionSoon();
+        });
+
+        editor.addEventListener("input", function(event) {
+          activeEditorId = id;
+
+          if (
+            event.inputType === "insertParagraph" ||
+            event.inputType === "insertLineBreak"
+          ) {
+            saveCurrentSelectionSoon();
+            return;
+          }
+
+          normalizeEditorVariablesSoon(editor);
+          saveCurrentSelectionSoon();
+        });
+
+        editor.addEventListener("keydown", function(event) {
+          activeEditorId = id;
+
+          const isLinkShortcut =
+            (event.metaKey || event.ctrlKey) &&
+            event.key.toLowerCase() === "k";
+
+          const isBoldShortcut =
+            (event.metaKey || event.ctrlKey) &&
+            event.key.toLowerCase() === "b";
+
+          if (isLinkShortcut && id === "bodyEditor") {
+            event.preventDefault();
+            openLinkModal();
+            return;
+          }
+
+          if (isBoldShortcut && id === "bodyEditor") {
+            event.preventDefault();
+            toggleBold();
+            return;
+          }
+
+          if (
+            id === "bodyEditor" &&
+            (event.key === "Backspace" || event.key === "Delete") &&
+            handleImageDelete(event)
+          ) {
+            return;
+          }
+
+          if (singleLine && event.key === "Enter") {
+            event.preventDefault();
+            return;
+          }
+
+          if (!singleLine && event.key === "Enter") {
+            event.preventDefault();
+            insertLineBreakAtCursor();
+            saveCurrentSelectionSoon();
+            return;
+          }
+        });
+      }
+
+      function handleImageDelete(event) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || !selection.isCollapsed) {
+          return false;
+        }
+
+        const range = selection.getRangeAt(0);
+        const token = event.key === "Backspace"
+          ? getImageBeforeCursor(range)
+          : getImageAfterCursor(range);
+
+        if (!token) {
+          return false;
+        }
+
+        event.preventDefault();
+
+        const parent = token.parentNode;
+        const caretNode = document.createTextNode("");
+
+        parent.insertBefore(
+          caretNode,
+          event.key === "Backspace" ? token : token.nextSibling
+        );
+
+        token.remove();
+
+        const newRange = document.createRange();
+        newRange.setStart(caretNode, 0);
+        newRange.setEnd(caretNode, 0);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        saveCurrentSelection();
+
+        return true;
+      }
+
+
+      function getImageBeforeCursor(range) {
+        const container = range.startContainer;
+        const offset = range.startOffset;
+
+        if (container.nodeType === Node.TEXT_NODE) {
+          if (offset > 0) return null;
+
+          let previous = container.previousSibling;
+
+          while (previous && isEmptyTextNode_(previous)) {
+            previous = previous.previousSibling;
+          }
+
+          return isImageTokenNode(previous) ? previous : null;
+        }
+
+        let previous = container.childNodes[offset - 1];
+
+        while (previous && isEmptyTextNode_(previous)) {
+          previous = previous.previousSibling;
+        }
+
+        return isImageTokenNode(previous) ? previous : null;
+      }
+
+
+      function getImageAfterCursor(range) {
+        const container = range.startContainer;
+        const offset = range.startOffset;
+
+        if (container.nodeType === Node.TEXT_NODE) {
+          if (offset < container.nodeValue.length) return null;
+
+          let next = container.nextSibling;
+
+          while (next && isEmptyTextNode_(next)) {
+            next = next.nextSibling;
+          }
+
+          return isImageTokenNode(next) ? next : null;
+        }
+
+        let next = container.childNodes[offset];
+
+        while (next && isEmptyTextNode_(next)) {
+          next = next.nextSibling;
+        }
+
+        return isImageTokenNode(next) ? next : null;
+      }
+
+
+      function isEmptyTextNode_(node) {
+        return !!(
+          node &&
+          node.nodeType === Node.TEXT_NODE &&
+          node.nodeValue.replace(/\u200B/g, "").trim() === ""
+        );
+      }
+
+
+      function isImageTokenNode(node) {
+        return !!(
+          node &&
+          node.nodeType === Node.ELEMENT_NODE &&
+          node.classList &&
+          node.classList.contains("token-image")
+        );
+      }
+
+      function setupToolbarFocusProtection() {
+        document.querySelectorAll(
+          ".toolbar-button, .segment-button, .chip, .template-pill, .color-swatch, .color-menu-option"
+        ).forEach(function(button) {
+          button.addEventListener("mousedown", function(event) {
+            event.preventDefault();
+            saveCurrentSelection();
+          });
+        });
+      }
+
+      function saveCurrentSelectionSoon() {
+        setTimeout(function() {
+          saveCurrentSelection();
+        }, 0);
+      }
+
+      function saveCurrentSelection() {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const subjectEditor = document.getElementById("subjectEditor");
+        const bodyEditor = document.getElementById("bodyEditor");
+
+        if (subjectEditor.contains(range.commonAncestorContainer)) {
+          activeEditorId = "subjectEditor";
+          window.savedEditorSelectionRange = range.cloneRange();
+          return;
+        }
+
+        if (bodyEditor.contains(range.commonAncestorContainer)) {
+          activeEditorId = "bodyEditor";
+          window.savedEditorSelectionRange = range.cloneRange();
+        }
+      }
+
+      function restoreCurrentSelection() {
+        const editor = getActiveEditor();
+        const selection = window.getSelection();
+
+        editor.focus();
+
+        if (
+          window.savedEditorSelectionRange &&
+          editor.contains(window.savedEditorSelectionRange.commonAncestorContainer)
+        ) {
+          selection.removeAllRanges();
+          selection.addRange(window.savedEditorSelectionRange);
+          return;
+        }
+
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        window.savedEditorSelectionRange = range.cloneRange();
+      }
+
+      function normalizeEditorVariablesSoon(editor) {
+        clearTimeout(normalizeTimer);
+
+        normalizeTimer = setTimeout(function() {
+          if (editorHasActiveTextSelection_(editor)) {
+            return;
+          }
+
+          preserveCaretWhile(editor, function() {
+            normalizeEditorVariables(editor);
+          });
+        }, 0);
+      }
+
+      function editorHasActiveTextSelection_(editor) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          return false;
+        }
+
+        const range = selection.getRangeAt(0);
+
+        return editor.contains(range.commonAncestorContainer);
+      }
+
+      function normalizeEditorVariables(editor) {
+        unwrapInvalidTokens(editor);
+        wrapValidVariableText(editor);
+      }
+
+      function unwrapInvalidTokens(editor) {
+        Array.from(editor.querySelectorAll(".token[data-token]")).forEach(function(token) {
+          const currentText = token.textContent || "";
+
+          if (validVariableSet[currentText]) {
+            token.dataset.token = currentText;
+            return;
+          }
+
+          const textNode = document.createTextNode(currentText);
+          token.parentNode.replaceChild(textNode, token);
+        });
+      }
+
+      function wrapValidVariableText(editor) {
+        const walker = document.createTreeWalker(
+          editor,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode: function(node) {
+              if (!node.nodeValue || !node.nodeValue.trim()) {
+                return NodeFilter.FILTER_REJECT;
+              }
+
+              if (node.parentNode && node.parentNode.closest && node.parentNode.closest(".token")) {
+                return NodeFilter.FILTER_REJECT;
+              }
+
+              if (node.parentNode && node.parentNode.closest && node.parentNode.closest(".token-image")) {
+                return NodeFilter.FILTER_REJECT;
+              }
+
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          }
+        );
+
+        const textNodes = [];
+
+        while (walker.nextNode()) {
+          textNodes.push(walker.currentNode);
+        }
+
+        textNodes.forEach(function(textNode) {
+          const fragment = tokenizeTextNode(textNode.nodeValue);
+
+          if (fragment) {
+            textNode.parentNode.replaceChild(fragment, textNode);
+          }
+        });
+      }
+
+      function tokenizeTextNode(text) {
+        let remaining = text;
+        let changed = false;
+        const fragment = document.createDocumentFragment();
+
+        while (remaining.length) {
+          let matched = false;
+
+          for (let i = 0; i < sortedVariables.length; i++) {
+            const variableName = sortedVariables[i];
+            const index = remaining.indexOf(variableName);
+
+            if (index === -1) continue;
+
+            const before = remaining.slice(0, index);
+            const afterStart = index + variableName.length;
+            const beforeChar = index > 0 ? remaining[index - 1] : "";
+            const afterChar = remaining[afterStart] || "";
+
+            if (!isVariableBoundary(beforeChar) || !isVariableBoundary(afterChar)) {
+              continue;
+            }
+
+            if (before) {
+              fragment.appendChild(document.createTextNode(before));
+            }
+
+            fragment.appendChild(createTextToken(variableName));
+
+            remaining = remaining.slice(afterStart);
+            changed = true;
+            matched = true;
+            break;
+          }
+
+          if (!matched) {
+            fragment.appendChild(document.createTextNode(remaining));
+            remaining = "";
+          }
+        }
+
+        return changed ? fragment : null;
+      }
+
+      function isVariableBoundary(char) {
+        if (!char) return true;
+
+        return /[\s.,!?;:()[\]{}'"“”‘’<>/\\|-]/.test(char);
+      }
+
+      function preserveCaretWhile(editor, callback) {
+        const caretOffset = getCaretCharacterOffsetWithin(editor);
+
+        callback();
+
+        setCaretCharacterOffsetWithin(editor, caretOffset);
+      }
+
+      function getCaretCharacterOffsetWithin(element) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          return 0;
+        }
+
+        const range = selection.getRangeAt(0);
+
+        if (!element.contains(range.commonAncestorContainer)) {
+          return 0;
+        }
+
+        const preCaretRange = range.cloneRange();
+
+        preCaretRange.selectNodeContents(element);
+        preCaretRange.setEnd(range.endContainer, range.endOffset);
+
+        return preCaretRange.toString().length;
+      }
+
+      function setCaretCharacterOffsetWithin(element, offset) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+
+        let currentOffset = 0;
+        let found = false;
+
+        const walker = document.createTreeWalker(
+          element,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          const nextOffset = currentOffset + node.nodeValue.length;
+
+          if (offset <= nextOffset) {
+            range.setStart(node, Math.max(0, offset - currentOffset));
+            range.collapse(true);
+            found = true;
+            break;
+          }
+
+          currentOffset = nextOffset;
+        }
+
+        if (!found) {
+          range.selectNodeContents(element);
+          range.collapse(false);
+        }
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      function populateChips(containerId, values, type) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = "";
+
+        if (!values.length) {
+          const empty = document.createElement("p");
+          empty.className = "empty-state";
+          empty.textContent = "No options found.";
+          container.appendChild(empty);
+          return;
+        }
+
+        values.forEach(function(value) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip";
+          chip.textContent = value;
+
+          chip.addEventListener("mousedown", function(event) {
+            event.preventDefault();
+            saveCurrentSelection();
+          });
+
+          chip.onclick = function() {
+            insertToken(value, type);
+          };
+
+          container.appendChild(chip);
+        });
+      }
+
+      function insertToken(value, type) {
+        const editor = getActiveEditor();
+
+        editor.focus();
+
+        if (type === "image") {
+          insertImageToken(value);
+          return;
+        }
+
+        insertNodeAtCursor(createTextToken(value));
+      }
+
+      function insertImageToken(value) {
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        const selection = window.getSelection();
+        const editor = document.getElementById("bodyEditor");
+
+        let range;
+
+        if (
+          selection &&
+          selection.rangeCount &&
+          editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ) {
+          range = selection.getRangeAt(0);
+        } else {
+          range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+        }
+
+        range.deleteContents();
+
+        const imageToken = createImageToken(value);
+        const spacer = document.createTextNode(" ");
+
+        range.insertNode(spacer);
+        range.insertNode(imageToken);
+
+        const newRange = document.createRange();
+        newRange.setStartAfter(spacer);
+        newRange.setEndAfter(spacer);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        saveCurrentSelection();
+      }
+
+      function createTextToken(value) {
+        const span = document.createElement("span");
+        span.className = "token";
+        span.dataset.token = value;
+        span.dataset.type = "text";
+        span.textContent = value;
+        return span;
+      }
+
+      function createImageToken(value) {
+        const asset = imageAssetMap[normalizeKey(value)];
+
+        const wrapper = document.createElement("span");
+        wrapper.className = "token-image";
+        wrapper.contentEditable = "false";
+        wrapper.dataset.token = value;
+        wrapper.dataset.type = "image";
+        wrapper.setAttribute("draggable", "false");
+        wrapper.setAttribute("title", "{{" + value + "}}");
+
+        if (asset && asset.previewUrl) {
+          const img = document.createElement("img");
+          const width = parseInt(asset.width, 10);
+          const safeWidth = width && width > 0 ? width : 320;
+
+          img.src = asset.previewUrl;
+          img.alt = asset.name || value;
+          img.draggable = false;
+          img.style.maxWidth = "100%";
+          img.style.width = Math.min(safeWidth, 520) + "px";
+
+          wrapper.appendChild(img);
+        } else {
+          const fallback = document.createElement("span");
+          fallback.className = "token-image-missing";
+          fallback.textContent = "{{" + value + "}}";
+          wrapper.appendChild(fallback);
+        }
+
+        return wrapper;
+      }
+
+      function getActiveEditor() {
+        const editor = document.getElementById(activeEditorId || "bodyEditor");
+        return editor || document.getElementById("bodyEditor");
+      }
+
+      function insertNodeAtCursor(node) {
+        restoreCurrentSelection();
+
+        const selection = window.getSelection();
+        const editor = getActiveEditor();
+
+        let range;
+
+        if (
+          selection &&
+          selection.rangeCount &&
+          editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ) {
+          range = selection.getRangeAt(0);
+        } else {
+          range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+        }
+
+        range.deleteContents();
+        range.insertNode(node);
+
+        range.setStartAfter(node);
+        range.setEndAfter(node);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        saveCurrentSelection();
+      }
+
+      function insertPlainTextAtCursor(text) {
+        restoreCurrentSelection();
+
+        const selection = window.getSelection();
+        const editor = getActiveEditor();
+
+        let range;
+
+        if (
+          selection &&
+          selection.rangeCount &&
+          editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ) {
+          range = selection.getRangeAt(0);
+        } else {
+          range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+        }
+
+        range.deleteContents();
+
+        const textNode = document.createTextNode(text);
+        range.insertNode(textNode);
+
+        range.setStartAfter(textNode);
+        range.setEndAfter(textNode);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        saveCurrentSelection();
+      }
+
+      function insertLineBreakAtCursor() {
+        restoreCurrentSelection();
+
+        const selection = window.getSelection();
+        const editor = getActiveEditor();
+
+        let range;
+
+        if (
+          selection &&
+          selection.rangeCount &&
+          editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+        ) {
+          range = selection.getRangeAt(0);
+        } else {
+          range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+        }
+
+        range.deleteContents();
+
+        const br = document.createElement("br");
+        const caretNode = document.createTextNode("\u200B");
+
+        range.insertNode(caretNode);
+        range.insertNode(br);
+
+        const newRange = document.createRange();
+        newRange.setStart(caretNode, 1);
+        newRange.setEnd(caretNode, 1);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        saveCurrentSelection();
+      }
+
+      function toggleBold() {
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        document.execCommand("bold", false, null);
+
+        saveCurrentSelectionSoon();
+      }
+
+      function toggleRed() {
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        const currentColor = document.queryCommandValue("foreColor");
+        const nextColor = isRedColor(currentColor) ? "#1f1f1f" : RED_COLOR;
+
+        document.execCommand("foreColor", false, nextColor);
+
+        saveCurrentSelectionSoon();
+      }
+
+      function adjustFontSize(direction) {
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          showError("Select body text before changing its size.");
+          return;
+        }
+
+        clearMessages();
+
+        const currentSize = getSelectedFontSize(selection);
+        const nextSize = Math.max(8, Math.min(24, currentSize + direction));
+
+        wrapSelectionWithStyle("font-size:" + nextSize + "pt;");
+        saveCurrentSelectionSoon();
+      }
+
+
+      function getSelectedFontSize(selection) {
+        let node = selection.anchorNode;
+
+        if (node && node.nodeType === Node.TEXT_NODE) {
+          node = node.parentNode;
+        }
+
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+          return 10;
+        }
+
+        const computed = window.getComputedStyle(node);
+        const pxSize = parseFloat(computed.fontSize || "13");
+
+        if (!pxSize) return 10;
+
+        return Math.round(pxSize * 0.75);
+      }
+
+
+      function wrapSelectionWithStyle(styleText) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          showError("Select body text before applying formatting.");
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const editor = document.getElementById("bodyEditor");
+
+        if (!editor.contains(range.commonAncestorContainer)) {
+          return;
+        }
+
+        const span = document.createElement("span");
+        span.setAttribute("style", styleText);
+
+        try {
+          range.surroundContents(span);
+        } catch (err) {
+          const contents = range.extractContents();
+          span.appendChild(contents);
+          range.insertNode(span);
+        }
+
+        selection.removeAllRanges();
+
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        selection.addRange(newRange);
+
+        window.savedEditorSelectionRange = newRange.cloneRange();
+      }
+
+
+      function toggleColorMenu(event) {
+        event.preventDefault();
+
+        const menu = document.getElementById("colorMenu");
+        menu.classList.toggle("open");
+
+        saveCurrentSelection();
+      }
+
+      function applyColorFromMenu(color) {
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        const normalizedColor = normalizeEditorColor_(color);
+
+        if (!normalizedColor && color !== "#1f1f1f") {
+          closeColorMenu();
+          return;
+        }
+
+        if (color === "#1f1f1f") {
+          wrapSelectionWithStyle("color:#1f1f1f;");
+        } else {
+          wrapSelectionWithStyle("color:" + normalizedColor + ";");
+        }
+
+        const button = document.getElementById("colorMenuButton");
+        button.style.setProperty("--current-swatch-color", color);
+
+        closeColorMenu();
+        saveCurrentSelectionSoon();
+      }
+
+      function closeColorMenu() {
+        const menu = document.getElementById("colorMenu");
+
+        if (menu) {
+          menu.classList.remove("open");
+        }
+      }
+
+      function setEditorFromTemplateHtml(editor, templateHtml) {
+        editor.innerHTML = "";
+
+        const text = String(templateHtml || "");
+        const parts = text.split(/(\{\{.*?\}\})/g);
+
+        parts.forEach(function(part) {
+          const match = part.match(/^\{\{(.*?)\}\}$/);
+
+          if (match) {
+            const variableName = match[1].trim();
+
+            if (imageAssetMap[normalizeKey(variableName)]) {
+              editor.appendChild(createImageToken(variableName));
+            } else if (validVariableSet[variableName]) {
+              editor.appendChild(createTextToken(variableName));
+            } else {
+              editor.appendChild(document.createTextNode(part));
+            }
+
+            return;
+          }
+
+          appendHtmlTextPart(editor, part);
+        });
+
+        normalizeEditorVariables(editor);
+      }
+
+      function appendHtmlTextPart(parent, html) {
+        const temp = document.createElement("div");
+        temp.innerHTML = String(html || "");
+
+        Array.from(temp.childNodes).forEach(function(node) {
+          parent.appendChild(convertLoadedNode(node));
+        });
+      }
+
+      function convertLoadedNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return document.createTextNode(node.nodeValue || "");
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return document.createTextNode("");
+        }
+
+        if (node.tagName === "A") {
+          const anchor = document.createElement("a");
+          anchor.href = node.getAttribute("href") || "";
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+
+          Array.from(node.childNodes).forEach(function(child) {
+            anchor.appendChild(convertLoadedNode(child));
+          });
+
+          return anchor;
+        }
+
+        if (node.tagName === "STRONG" || node.tagName === "B") {
+          const strong = document.createElement("strong");
+
+          Array.from(node.childNodes).forEach(function(child) {
+            strong.appendChild(convertLoadedNode(child));
+          });
+
+          return strong;
+        }
+
+        if (node.tagName === "FONT") {
+          const span = document.createElement("span");
+
+          if (isRedColor(node.getAttribute("color"))) {
+            span.style.color = RED_COLOR;
+          }
+
+          Array.from(node.childNodes).forEach(function(child) {
+            span.appendChild(convertLoadedNode(child));
+          });
+
+          return span;
+        }
+
+        if (node.tagName === "SPAN") {
+          const span = document.createElement("span");
+
+          const color = normalizeEditorColor_(node.style.color);
+          if (color) {
+            span.style.color = color;
+          }
+
+          if (node.style.fontSize) {
+            span.style.fontSize = node.style.fontSize;
+          }
+
+          Array.from(node.childNodes).forEach(function(child) {
+            span.appendChild(convertLoadedNode(child));
+          });
+
+          return span;
+        }
+
+        if (node.tagName === "BR") {
+          return document.createElement("br");
+        }
+
+        if (node.tagName === "DIV" || node.tagName === "P") {
+          const fragment = document.createDocumentFragment();
+
+          Array.from(node.childNodes).forEach(function(child) {
+            fragment.appendChild(convertLoadedNode(child));
+          });
+
+          fragment.appendChild(document.createElement("br"));
+
+          return fragment;
+        }
+
+        const wrapper = document.createDocumentFragment();
+
+        Array.from(node.childNodes).forEach(function(child) {
+          wrapper.appendChild(convertLoadedNode(child));
+        });
+
+        return wrapper;
+      }
+
+      function openLinkModal() {
+        clearMessages();
+        clearLinkModalError();
+
+        activeEditorId = "bodyEditor";
+        document.getElementById("bodyEditor").focus();
+
+        saveCurrentSelection();
+
+        activeLinkElement = getCurrentLinkElement();
+
+        const selection = window.getSelection();
+        const selectedText = selection && selection.toString()
+          ? selection.toString().trim()
+          : "";
+
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        if (activeLinkElement) {
+          textInput.value = activeLinkElement.textContent || "";
+          urlInput.value = activeLinkElement.getAttribute("href") || "";
+        } else {
+          textInput.value = selectedText || "";
+          urlInput.value = "";
+        }
+
+        document.getElementById("linkOverlay").classList.add("open");
+
+        setTimeout(function() {
+          if (textInput.value) {
+            urlInput.focus();
+          } else {
+            textInput.focus();
+          }
+        }, 0);
+      }
+
+      function closeLinkModal() {
+        document.getElementById("linkOverlay").classList.remove("open");
+        clearLinkModalError();
+        activeLinkElement = null;
+      }
+
+      function handleLinkOverlayClick(event) {
+        if (event.target.id === "linkOverlay") {
+          closeLinkModal();
+        }
+      }
+
+      function getCurrentLinkElement() {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          return null;
+        }
+
+        let node = selection.anchorNode;
+
+        if (node && node.nodeType === Node.TEXT_NODE) {
+          node = node.parentNode;
+        }
+
+        return node && node.closest ? node.closest("a") : null;
+      }
+
+      function applyLinkFromModal() {
+        clearLinkModalError();
+
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        const linkText = String(textInput.value || "").trim();
+        let url = String(urlInput.value || "").trim();
+
+        if (!linkText) {
+          showLinkModalError("Text to display is required.");
+          textInput.focus();
+          return;
+        }
+
+        if (!url) {
+          showLinkModalError("Link is required.");
+          urlInput.focus();
+          return;
+        }
+
+        url = normalizeUrl(url);
+
+        if (!isSafeUrl(url)) {
+          showLinkModalError("Please enter a valid http://, https://, or mailto: link.");
+          urlInput.focus();
+          return;
+        }
+
+        closeLinkModal();
+
+        activeEditorId = "bodyEditor";
+        restoreCurrentSelection();
+
+        if (activeLinkElement && document.body.contains(activeLinkElement)) {
+          activeLinkElement.href = url;
+          activeLinkElement.textContent = linkText;
+          activeLinkElement.target = "_blank";
+          activeLinkElement.rel = "noopener noreferrer";
+        } else {
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.textContent = linkText;
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+
+          insertNodeAtCursor(anchor);
+        }
+
+        document.getElementById("bodyEditor").focus();
+        saveCurrentSelectionSoon();
+      }
+
+      function setupLinkModalKeyboard() {
+        const overlay = document.getElementById("linkOverlay");
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        [textInput, urlInput].forEach(function(input) {
+          input.addEventListener("keydown", function(event) {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              applyLinkFromModal();
+            }
+
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeLinkModal();
+            }
+          });
+        });
+
+        document.addEventListener("keydown", function(event) {
+          if (!overlay.classList.contains("open")) return;
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeLinkModal();
+          }
+        });
+      }
+
+      function clearLinkModalError() {
+        document.getElementById("linkModalError").textContent = "";
+      }
+
+      function showLinkModalError(message) {
+        document.getElementById("linkModalError").textContent =
+          message || "Something went wrong.";
+      }
+
+      function showInsertTab(tabName) {
+        const tabMap = {
+          row: "rowVariableChips",
+          sender: "senderVariableChips",
+          image: "imageVariableChips"
+        };
+
+        Object.keys(tabMap).forEach(function(key) {
+          document.getElementById(tabMap[key]).style.display =
+            key === tabName ? "flex" : "none";
+
+          document.getElementById("tab-" + key).classList.toggle("active", key === tabName);
+        });
+      }
+
+      function saveTemplate() {
+        clearMessages();
+
+        const saveButton = document.getElementById("saveButton");
+        const subjectEditor = document.getElementById("subjectEditor");
+        const bodyEditor = document.getElementById("bodyEditor");
+
+        normalizeEditorVariables(subjectEditor);
+        normalizeEditorVariables(bodyEditor);
+
+        const formData = {
+          name: FORM_MODE === "edit"
+            ? selectedOriginalTemplateName
+            : document.getElementById("templateName").value,
+          originalName: selectedOriginalTemplateName,
+          subject: editorToTemplateText(subjectEditor),
+          body: editorToTemplateText(bodyEditor)
+        };
+
+        if (FORM_MODE === "edit" && !selectedOriginalTemplateName) {
+          showError("Choose a template to edit.");
+          return;
+        }
+
+        if (!formData.name.trim()) {
+          showError("Template name is required.");
+          return;
+        }
+
+        if (!formData.subject.trim()) {
+          showError("Subject is required.");
+          return;
+        }
+
+        if (!formData.body.trim()) {
+          showError("Body is required.");
+          return;
+        }
+
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving...";
+
+        const runner = google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById("status").textContent =
+              result.title + "\n" + result.message;
+
+            saveButton.textContent = "Saved";
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 900);
+          })
+          .withFailureHandler(function(error) {
+            showError(error.message);
+            saveButton.disabled = false;
+            saveButton.textContent = "Save";
+          });
+
+        if (FORM_MODE === "edit") {
+          runner.updateComposedTemplate(formData);
+        } else {
+          runner.saveComposedTemplate(formData);
+        }
+      }
+
+      function editorToTemplateText(root) {
+        return serializeNodeChildren(root)
+          .replace(/\u200B/g, "")
+          .replace(/\u00a0/g, " ")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+
+      function serializeNodeChildren(node) {
+        let output = "";
+
+        node.childNodes.forEach(function(child) {
+          output += serializeNode(child);
+        });
+
+        return output;
+      }
+
+      function serializeNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return escapeHtmlText(node.nodeValue || "");
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return "";
+        }
+
+        if (node.classList && node.classList.contains("token-image")) {
+          const tokenValue = node.dataset.token || "";
+
+          if (tokenValue) {
+            return "{{" + tokenValue + "}}";
+          }
+
+          return "";
+        }
+
+        if (node.classList && node.classList.contains("token")) {
+          const tokenValue = node.dataset.token || node.textContent || "";
+
+          if (validVariableSet[tokenValue]) {
+            return "{{" + tokenValue + "}}";
+          }
+
+          return escapeHtmlText(node.textContent || "");
+        }
+
+        if (node.tagName === "A") {
+          const href = node.getAttribute("href") || "";
+          const safeHref = isSafeUrl(href) ? href : "";
+          const text = serializeNodeChildren(node);
+
+          if (!safeHref) {
+            return text;
+          }
+
+          return '<a href="' + escapeHtmlAttribute(safeHref) + '">' + text + "</a>";
+        }
+
+        if (node.tagName === "B" || node.tagName === "STRONG") {
+          return "<strong>" + serializeNodeChildren(node) + "</strong>";
+        }
+
+        if (node.tagName === "FONT") {
+          const content = serializeNodeChildren(node);
+          const color = normalizeEditorColor_(node.getAttribute("color") || node.style.color || "");
+
+          if (color) {
+            return '<span style="color:' + escapeHtmlAttribute(color) + ';">' + content + "</span>";
+          }
+
+          return content;
+        }
+
+        if (node.tagName === "SPAN") {
+          const content = serializeNodeChildren(node);
+          const styleText = getAllowedInlineStyle_(node);
+
+          if (styleText) {
+            return '<span style="' + escapeHtmlAttribute(styleText) + '">' + content + "</span>";
+          }
+
+          return content;
+        }
+
+        if (node.tagName === "BR") {
+          return "\n";
+        }
+
+        if (node.tagName === "DIV" || node.tagName === "P") {
+          return serializeNodeChildren(node) + "\n";
+        }
+
+        return serializeNodeChildren(node);
+      }
+
+      function getAllowedInlineStyle_(node) {
+        const styles = [];
+
+        if (node.style && node.style.color) {
+          const normalizedColor = normalizeEditorColor_(node.style.color);
+
+          if (normalizedColor) {
+            styles.push("color:" + normalizedColor + ";");
+          }
+        }
+
+        if (node.style && node.style.fontSize) {
+          styles.push("font-size:" + node.style.fontSize + ";");
+        }
+
+        return styles.join("");
+      }
+
+      function normalizeEditorColor_(value) {
+        const color = String(value || "").trim().toLowerCase();
+
+        if (
+          color === "#1f1f1f" ||
+          color === "rgb(31, 31, 31)" ||
+          color === "rgba(31, 31, 31, 1)" ||
+          color === "black"
+        ) {
+          return "";
+        }
+
+        if (isRedColor(color)) {
+          return RED_COLOR;
+        }
+
+        if (
+          color === "#0099cc" ||
+          color === "rgb(0, 153, 204)" ||
+          color === "rgba(0, 153, 204, 1)"
+        ) {
+          return "#0099cc";
+        }
+
+        if (
+          color === "#666666" ||
+          color === "rgb(102, 102, 102)" ||
+          color === "rgba(102, 102, 102, 1)"
+        ) {
+          return "#666666";
+        }
+
+        if (
+          color === "#ff9933" ||
+          color === "rgb(255, 153, 51)" ||
+          color === "rgba(255, 153, 51, 1)"
+        ) {
+          return "#ff9933";
+        }
+
+        if (
+          color === "#002b49" ||
+          color === "rgb(0, 43, 73)" ||
+          color === "rgba(0, 43, 73, 1)"
+        ) {
+          return "#002b49";
+        }
+
+        return "";
+      }
+
+      function isRedColor(value) {
+        const color = String(value || "").trim().toLowerCase();
+
+        return (
+          color === RED_COLOR ||
+          color === "#b3261e" ||
+          color === "rgb(179, 38, 30)" ||
+          color === "rgba(179, 38, 30, 1)"
+        );
+      }
+
+      function normalizeUrl(url) {
+        const trimmed = String(url || "").trim();
+
+        if (/^(https?:\/\/|mailto:)/i.test(trimmed)) {
+          return trimmed;
+        }
+
+        return "https://" + trimmed;
+      }
+
+      function isSafeUrl(url) {
+        return /^(https?:\/\/|mailto:)/i.test(String(url || "").trim());
+      }
+
+      function escapeHtmlAttribute(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function escapeHtmlText(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function normalizeKey(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_\s]+/g, " ");
+      }
+
+      function clearMessages() {
+        document.getElementById("status").textContent = "";
+        document.getElementById("error").textContent = "";
+      }
+
+      function showError(message) {
+        document.getElementById("error").textContent = message || "Something went wrong.";
+      }
+
+      function placeCaretAtEnd(editor) {
+        const selection = window.getSelection();
+        const range = document.createRange();
+
+        editor.focus();
+
+        range.selectNodeContents(editor);
+        range.collapse(false);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        activeEditorId = editor.id || "bodyEditor";
+        window.savedEditorSelectionRange = range.cloneRange();
+      }
+
+      initializeComposer();
+    </script>
+
+  </body>
+</html>

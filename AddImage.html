@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+
+    <style>
+      :root {
+        --google-blue: #0b57d0;
+        --google-blue-hover-bg: #eef2fb;
+        --text-primary: #1f1f1f;
+        --text-secondary: #5f6368;
+        --placeholder: #9aa0a6;
+        --border: #dadce0;
+        --focus-blue: #1a73e8;
+        --error: #b3261e;
+        --success: #137333;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        font-family: "Roboto", Arial, sans-serif;
+        color: var(--text-primary);
+        background: #ffffff;
+      }
+
+      .wrap {
+        padding: 0;
+      }
+
+      .intro {
+        margin-bottom: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: #3c4043;
+      }
+
+      input {
+        width: 100%;
+        height: 36px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #ffffff;
+        color: var(--text-primary);
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+      }
+
+      input::placeholder {
+        color: var(--placeholder);
+      }
+
+      input:focus::placeholder {
+        color: transparent;
+      }
+
+      input:focus {
+        border: 2px solid var(--focus-blue);
+        outline: none;
+      }
+
+      .hint {
+        margin-top: 5px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-secondary);
+      }
+
+      .message {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+
+      .error {
+        color: var(--error);
+      }
+
+      .status {
+        color: var(--success);
+      }
+
+      .button-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        min-width: 64px;
+        height: 36px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 18px;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      button.secondary,
+      button.primary {
+        background: #ffffff;
+        color: var(--google-blue);
+      }
+
+      button.secondary:hover,
+      button.primary:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      button:disabled {
+        background: #f1f3f4;
+        color: #9aa0a6;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+
+      <div class="field">
+        <label for="imageName">Image name</label>
+        <input id="imageName" type="text" placeholder="Header Image">
+      </div>
+
+      <div class="field">
+        <label for="imageLink">Shared Drive link</label>
+        <input id="imageLink" type="text" placeholder="https://drive.google.com/file/d/...">
+      </div>
+
+      <div class="field">
+        <label for="imageWidth">Width (px)</label>
+        <input id="imageWidth" type="text" placeholder="320">
+        <div class="hint">
+          Leave as 320 if unsure.
+        </div>
+      </div>
+
+      <div id="status" class="message status"></div>
+      <div id="error" class="message error"></div>
+
+      <div class="button-row">
+        <button class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button id="saveButton" class="primary" onclick="saveImage()">Save</button>
+      </div>
+    </div>
+
+    <script>
+      function saveImage() {
+        clearMessages();
+
+        const saveButton = document.getElementById("saveButton");
+
+        const formData = {
+          name: document.getElementById("imageName").value,
+          link: document.getElementById("imageLink").value,
+          width: document.getElementById("imageWidth").value || "320"
+        };
+
+        if (!formData.name.trim()) {
+          showError("Image name is required.");
+          return;
+        }
+
+        if (!formData.link.trim()) {
+          showError("Drive link or file ID is required.");
+          return;
+        }
+
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving...";
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById("status").textContent =
+              result.title + "\n" + result.message;
+
+            saveButton.textContent = "Saved";
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 900);
+          })
+          .withFailureHandler(function(error) {
+            showError(error.message);
+            saveButton.disabled = false;
+            saveButton.textContent = "Save";
+          })
+          .saveImageAsset(formData);
+      }
+
+      function clearMessages() {
+        document.getElementById("status").textContent = "";
+        document.getElementById("error").textContent = "";
+      }
+
+      function showError(message) {
+        document.getElementById("error").textContent =
+          message || "Something went wrong.";
+      }
+    </script>
+  </body>
+</html>

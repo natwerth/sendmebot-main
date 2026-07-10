@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+
+    <style>
+      :root {
+        --google-blue: #0b57d0;
+        --google-blue-hover-bg: #eef2fb;
+        --text-primary: #1f1f1f;
+        --text-secondary: #5f6368;
+        --placeholder: #9aa0a6;
+        --border: #dadce0;
+        --focus-blue: #1a73e8;
+        --error: #b3261e;
+        --success: #137333;
+        --chip-bg: #f8fafd;
+        --chip-border: #d2e3fc;
+        --panel-bg: #f8fafd;
+        --overlay-bg: rgba(32, 33, 36, 0.38);
+        --akamai-blue: #0099cc;
+        --signature-charcoal: #666666;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        font-family: "Roboto", Arial, sans-serif;
+        color: var(--text-primary);
+        background: #ffffff;
+      }
+
+      .wrap {
+        padding: 0;
+      }
+
+      .intro {
+        margin-bottom: 14px;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: #3c4043;
+      }
+
+      input,
+      .editor {
+        width: 100%;
+        background: #ffffff;
+        color: var(--text-primary);
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+      }
+
+      input {
+        height: 36px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+
+      input::placeholder {
+        color: var(--placeholder);
+      }
+
+      input:focus::placeholder {
+        color: transparent;
+      }
+
+      input:focus {
+        border: 2px solid var(--focus-blue);
+        outline: none;
+      }
+
+      .editor {
+        min-height: 130px;
+        max-height: 220px;
+        padding: 10px;
+        line-height: 1.45;
+        outline: none;
+        overflow: auto;
+        white-space: pre-wrap;
+        border: none;
+        border-radius: 0;
+      }
+
+      .editor:empty:not(:focus)::before {
+        content: attr(data-placeholder);
+        color: var(--placeholder);
+      }
+
+      .editor a {
+        color: var(--google-blue);
+        text-decoration: underline;
+      }
+
+      .signature-shell {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #ffffff;
+      }
+
+      .signature-shell:focus-within {
+        border: 2px solid var(--focus-blue);
+      }
+
+      .field-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+
+      .field-header label {
+        margin-bottom: 0;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .toolbar-button {
+        min-width: 0;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 14px;
+        background: #ffffff;
+        color: var(--google-blue);
+        border: 1px solid var(--chip-border);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .toolbar-button:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .toolbar-divider {
+        width: 1px;
+        height: 20px;
+        background: var(--border);
+      }
+
+      .color-swatch {
+        min-width: 0;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border-radius: 999px;
+        border: 1px solid var(--chip-border);
+        background: #ffffff;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .color-swatch::before {
+        content: "";
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        display: block;
+      }
+
+      .color-swatch:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .color-swatch.blue::before {
+        background: var(--akamai-blue);
+      }
+
+      .color-swatch.charcoal::before {
+        background: var(--signature-charcoal);
+      }
+
+      .insert-tray {
+        border-top: 1px solid var(--border);
+        background: var(--panel-bg);
+        padding: 10px;
+      }
+
+      .insert-tray-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .insert-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+      }
+
+      .insert-helper {
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--text-secondary);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .chip {
+        min-width: 0;
+        height: 28px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        padding: 0 10px;
+        background: #ffffff;
+        color: var(--google-blue);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .chip:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .empty-state {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .token-image {
+        display: inline-block;
+        margin: 8px 0;
+        vertical-align: middle;
+      }
+
+      .token-image img {
+        display: block;
+        height: auto;
+        border-radius: 4px;
+      }
+
+      .token-image-missing {
+        display: inline-block;
+        padding: 4px 8px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        color: var(--google-blue);
+        font-size: 12px;
+        font-weight: 700;
+        background: var(--chip-bg);
+      }
+
+      .message {
+        margin-top: 10px;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+
+      .error {
+        color: var(--error);
+      }
+
+      .status {
+        color: var(--success);
+      }
+
+      .button-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      button {
+        min-width: 64px;
+        height: 36px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 18px;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      button.secondary,
+      button.primary {
+        background: #ffffff;
+        color: var(--google-blue);
+      }
+
+      button.secondary:hover,
+      button.primary:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      button:disabled {
+        background: #f1f3f4;
+        color: #9aa0a6;
+        cursor: not-allowed;
+      }
+
+      .link-overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--overlay-bg);
+        z-index: 9999;
+      }
+
+      .link-overlay.open {
+        display: flex;
+      }
+
+      .link-modal {
+        width: 100%;
+        max-width: 420px;
+        border-radius: 12px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(60, 64, 67, 0.28);
+        padding: 18px;
+      }
+
+      .link-modal-title {
+        margin: 0 0 14px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .link-modal .field {
+        margin-bottom: 12px;
+      }
+
+      .link-modal input {
+        height: 38px;
+      }
+
+      .link-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+
+      <div class="field">
+        <label for="senderName">Name</label>
+        <input id="senderName" type="text" placeholder="Last, First">
+      </div>
+
+      <div class="field">
+        <label for="senderEmail">Email</label>
+        <input id="senderEmail" type="email" placeholder="nat@natwerth.com">
+      </div>
+
+      <div class="field">
+        <div class="field-header">
+          <label for="signatureEditor">Signature</label>
+
+          <div class="toolbar">
+            <button type="button" class="toolbar-button" onclick="openLinkModal()">+ Link</button>
+            <button type="button" class="toolbar-button" onclick="toggleBold()">Bold</button>
+            <button type="button" class="toolbar-button" onclick="adjustFontSize(-1)">A−</button>
+            <button type="button" class="toolbar-button" onclick="adjustFontSize(1)">A+</button>
+
+            <span class="toolbar-divider"></span>
+
+            <button
+              type="button"
+              class="color-swatch blue"
+              title="Akamai blue"
+              aria-label="Apply Akamai blue"
+              onclick="applyTextColor('#0099cc')"
+            ></button>
+
+            <button
+              type="button"
+              class="color-swatch charcoal"
+              title="Charcoal"
+              aria-label="Apply charcoal"
+              onclick="applyTextColor('#666666')"
+            ></button>
+          </div>
+        </div>
+
+        <div class="signature-shell">
+          <div
+            id="signatureEditor"
+            class="editor"
+            contenteditable="true"
+            data-placeholder="All the best,&#10;Nat"
+          ></div>
+
+          <div class="insert-tray">
+            <div class="insert-tray-top">
+              <div class="insert-label">Images</div>
+              <div class="insert-helper">Insert</div>
+            </div>
+
+            <div id="imageChips" class="chips"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="status" class="message status"></div>
+      <div id="error" class="message error"></div>
+
+      <div class="button-row">
+        <button class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button id="saveButton" class="primary" onclick="saveSender()">Save</button>
+      </div>
+    </div>
+
+    <div id="linkOverlay" class="link-overlay" onclick="handleLinkOverlayClick(event)">
+      <div class="link-modal" role="dialog" aria-modal="true" aria-labelledby="linkModalTitle">
+        <div id="linkModalTitle" class="link-modal-title">Insert link</div>
+
+        <div class="field">
+          <label for="linkTextInput">Text to display</label>
+          <input id="linkTextInput" type="text" placeholder="Akamai">
+        </div>
+
+        <div class="field">
+          <label for="linkUrlInput">Link</label>
+          <input id="linkUrlInput" type="text" placeholder="https://example.com">
+        </div>
+
+        <div id="linkModalError" class="message error"></div>
+
+        <div class="link-modal-actions">
+          <button type="button" class="secondary" onclick="closeLinkModal()">Cancel</button>
+          <button type="button" class="primary" onclick="applyLinkFromModal()">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const context = <?!= contextJson ?>;
+
+      let savedSelectionRange = null;
+      let activeLinkElement = null;
+
+      const imageAssetMap = {};
+      (context.imageAssets || []).forEach(function(asset) {
+        imageAssetMap[normalizeKey(asset.name)] = asset;
+      });
+
+      function initializeSenderForm() {
+        setupSignatureEditor();
+        populateImageChips();
+        setupLinkModalKeyboard();
+      }
+
+      function setupSignatureEditor() {
+        const editor = document.getElementById("signatureEditor");
+
+        editor.addEventListener("paste", function(event) {
+          event.preventDefault();
+          const text = (event.clipboardData || window.clipboardData).getData("text/plain");
+          document.execCommand("insertText", false, text);
+        });
+
+        editor.addEventListener("keydown", function(event) {
+          const isLinkShortcut =
+            (event.metaKey || event.ctrlKey) &&
+            event.key.toLowerCase() === "k";
+
+          const isBoldShortcut =
+            (event.metaKey || event.ctrlKey) &&
+            event.key.toLowerCase() === "b";
+
+          if (isLinkShortcut) {
+            event.preventDefault();
+            openLinkModal();
+            return;
+          }
+
+          if (isBoldShortcut) {
+            event.preventDefault();
+            toggleBold();
+            return;
+          }
+
+          if ((event.key === "Backspace" || event.key === "Delete") && handleImageDelete(event)) {
+            return;
+          }
+        });
+      }
+
+      function populateImageChips() {
+        const container = document.getElementById("imageChips");
+        container.innerHTML = "";
+
+        const imageAssets = context.imageAssets || [];
+
+        if (!imageAssets.length) {
+          const empty = document.createElement("p");
+          empty.className = "empty-state";
+          empty.textContent = "No images found. Add images first from the SendMeBot menu.";
+          container.appendChild(empty);
+          return;
+        }
+
+        imageAssets.forEach(function(asset) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "chip";
+          chip.textContent = asset.name;
+          chip.onclick = function() {
+            insertImage(asset.name);
+          };
+          container.appendChild(chip);
+        });
+      }
+
+      function toggleBold() {
+        document.getElementById("signatureEditor").focus();
+        document.execCommand("bold", false, null);
+      }
+
+      function applyTextColor(color) {
+        document.getElementById("signatureEditor").focus();
+        document.execCommand("foreColor", false, color);
+      }
+
+      function adjustFontSize(direction) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          showError("Select signature text before changing its size.");
+          return;
+        }
+
+        clearMessages();
+
+        const currentSize = getSelectedFontSize(selection);
+        const nextSize = Math.max(8, Math.min(24, currentSize + direction));
+
+        wrapSelectionWithStyle("font-size:" + nextSize + "pt;");
+      }
+
+      function getSelectedFontSize(selection) {
+        let node = selection.anchorNode;
+
+        if (node && node.nodeType === Node.TEXT_NODE) {
+          node = node.parentNode;
+        }
+
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+          return 10;
+        }
+
+        const computed = window.getComputedStyle(node);
+        const pxSize = parseFloat(computed.fontSize || "13");
+
+        if (!pxSize) return 10;
+
+        return Math.round(pxSize * 0.75);
+      }
+
+      function wrapSelectionWithStyle(styleText) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || selection.isCollapsed) {
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const span = document.createElement("span");
+        span.setAttribute("style", styleText);
+
+        try {
+          range.surroundContents(span);
+        } catch (err) {
+          const contents = range.extractContents();
+          span.appendChild(contents);
+          range.insertNode(span);
+        }
+
+        selection.removeAllRanges();
+
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        selection.addRange(newRange);
+      }
+
+      function insertImage(value) {
+        const editor = document.getElementById("signatureEditor");
+        editor.focus();
+
+        insertNodeAtCursor(createImageToken(value));
+        insertNodeAtCursor(document.createTextNode(" "));
+      }
+
+      function createImageToken(value) {
+        const asset = imageAssetMap[normalizeKey(value)];
+
+        const wrapper = document.createElement("span");
+        wrapper.className = "token-image";
+        wrapper.contentEditable = "false";
+        wrapper.dataset.token = value;
+        wrapper.dataset.type = "image";
+
+        if (asset && asset.previewUrl) {
+          const img = document.createElement("img");
+          const width = parseInt(asset.width, 10);
+          const safeWidth = width && width > 0 ? width : 320;
+
+          img.src = asset.previewUrl;
+          img.alt = asset.name;
+          img.style.maxWidth = safeWidth + "px";
+
+          wrapper.appendChild(img);
+        } else {
+          const fallback = document.createElement("span");
+          fallback.className = "token-image-missing";
+          fallback.textContent = value;
+          wrapper.appendChild(fallback);
+        }
+
+        return wrapper;
+      }
+
+      function handleImageDelete(event) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount || !selection.isCollapsed) {
+          return false;
+        }
+
+        const range = selection.getRangeAt(0);
+        const token = event.key === "Backspace"
+          ? getImageBeforeCursor(range)
+          : getImageAfterCursor(range);
+
+        if (!token) {
+          return false;
+        }
+
+        event.preventDefault();
+
+        const parent = token.parentNode;
+        const nextPosition = document.createTextNode("");
+
+        parent.insertBefore(nextPosition, event.key === "Backspace" ? token : token.nextSibling);
+        token.remove();
+
+        const newRange = document.createRange();
+        newRange.setStart(nextPosition, 0);
+        newRange.setEnd(nextPosition, 0);
+
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+
+        return true;
+      }
+
+      function getImageBeforeCursor(range) {
+        const container = range.startContainer;
+        const offset = range.startOffset;
+
+        if (container.nodeType === Node.TEXT_NODE) {
+          if (offset > 0) return null;
+
+          let previous = container.previousSibling;
+
+          while (previous && previous.nodeType === Node.TEXT_NODE && previous.nodeValue === "") {
+            previous = previous.previousSibling;
+          }
+
+          return isImageTokenNode(previous) ? previous : null;
+        }
+
+        const previous = container.childNodes[offset - 1];
+        return isImageTokenNode(previous) ? previous : null;
+      }
+
+      function getImageAfterCursor(range) {
+        const container = range.startContainer;
+        const offset = range.startOffset;
+
+        if (container.nodeType === Node.TEXT_NODE) {
+          if (offset < container.nodeValue.length) return null;
+
+          let next = container.nextSibling;
+
+          while (next && next.nodeType === Node.TEXT_NODE && next.nodeValue === "") {
+            next = next.nextSibling;
+          }
+
+          return isImageTokenNode(next) ? next : null;
+        }
+
+        const next = container.childNodes[offset];
+        return isImageTokenNode(next) ? next : null;
+      }
+
+      function isImageTokenNode(node) {
+        return !!(
+          node &&
+          node.nodeType === Node.ELEMENT_NODE &&
+          node.classList &&
+          node.classList.contains("token-image")
+        );
+      }
+
+      function openLinkModal() {
+        clearMessages();
+        clearLinkModalError();
+
+        const editor = document.getElementById("signatureEditor");
+        editor.focus();
+
+        saveCurrentSelection();
+        activeLinkElement = getCurrentLinkElement();
+
+        const selection = window.getSelection();
+        const selectedText = selection && selection.toString()
+          ? selection.toString().trim()
+          : "";
+
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        if (activeLinkElement) {
+          textInput.value = activeLinkElement.textContent || "";
+          urlInput.value = activeLinkElement.getAttribute("href") || "";
+        } else {
+          textInput.value = selectedText || "";
+          urlInput.value = "";
+        }
+
+        document.getElementById("linkOverlay").classList.add("open");
+
+        setTimeout(function() {
+          if (textInput.value) {
+            urlInput.focus();
+          } else {
+            textInput.focus();
+          }
+        }, 0);
+      }
+
+      function closeLinkModal() {
+        document.getElementById("linkOverlay").classList.remove("open");
+        clearLinkModalError();
+        activeLinkElement = null;
+      }
+
+      function handleLinkOverlayClick(event) {
+        if (event.target.id === "linkOverlay") {
+          closeLinkModal();
+        }
+      }
+
+      function applyLinkFromModal() {
+        clearLinkModalError();
+
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        const linkText = String(textInput.value || "").trim();
+        let url = String(urlInput.value || "").trim();
+
+        if (!linkText) {
+          showLinkModalError("Text to display is required.");
+          textInput.focus();
+          return;
+        }
+
+        if (!url) {
+          showLinkModalError("Link is required.");
+          urlInput.focus();
+          return;
+        }
+
+        url = normalizeUrl(url);
+
+        if (!isSafeUrl(url)) {
+          showLinkModalError("Please enter a valid http://, https://, or mailto: link.");
+          urlInput.focus();
+          return;
+        }
+
+        if (activeLinkElement && document.body.contains(activeLinkElement)) {
+          activeLinkElement.href = url;
+          activeLinkElement.textContent = linkText;
+          activeLinkElement.target = "_blank";
+          activeLinkElement.rel = "noopener noreferrer";
+        } else {
+          restoreSavedSelection();
+
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.textContent = linkText;
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+
+          insertNodeAtCursor(anchor);
+          insertNodeAtCursor(document.createTextNode(" "));
+        }
+
+        closeLinkModal();
+        document.getElementById("signatureEditor").focus();
+      }
+
+      function setupLinkModalKeyboard() {
+        const overlay = document.getElementById("linkOverlay");
+        const textInput = document.getElementById("linkTextInput");
+        const urlInput = document.getElementById("linkUrlInput");
+
+        [textInput, urlInput].forEach(function(input) {
+          input.addEventListener("keydown", function(event) {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              applyLinkFromModal();
+            }
+
+            if (event.key === "Escape") {
+              event.preventDefault();
+              closeLinkModal();
+            }
+          });
+        });
+
+        document.addEventListener("keydown", function(event) {
+          if (!overlay.classList.contains("open")) return;
+
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeLinkModal();
+          }
+        });
+      }
+
+      function saveCurrentSelection() {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          savedSelectionRange = null;
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const editor = document.getElementById("signatureEditor");
+
+        if (!editor.contains(range.commonAncestorContainer)) {
+          savedSelectionRange = null;
+          return;
+        }
+
+        savedSelectionRange = range.cloneRange();
+      }
+
+      function restoreSavedSelection() {
+        if (!savedSelectionRange) {
+          document.getElementById("signatureEditor").focus();
+          return;
+        }
+
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(savedSelectionRange);
+      }
+
+      function getCurrentLinkElement() {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          return null;
+        }
+
+        let node = selection.anchorNode;
+
+        if (node && node.nodeType === Node.TEXT_NODE) {
+          node = node.parentNode;
+        }
+
+        return node && node.closest ? node.closest("a") : null;
+      }
+
+      function insertNodeAtCursor(node) {
+        const selection = window.getSelection();
+
+        if (!selection || !selection.rangeCount) {
+          document.getElementById("signatureEditor").appendChild(node);
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(node);
+
+        range.setStartAfter(node);
+        range.setEndAfter(node);
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
+      function saveSender() {
+        clearMessages();
+
+        const saveButton = document.getElementById("saveButton");
+
+        const formData = {
+          name: document.getElementById("senderName").value,
+          email: document.getElementById("senderEmail").value,
+          signature: editorToSignatureText(document.getElementById("signatureEditor")).trim()
+        };
+
+        if (!formData.name.trim()) {
+          showError("Sender name is required.");
+          return;
+        }
+
+        if (!formData.email.trim()) {
+          showError("Sender email is required.");
+          return;
+        }
+
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving...";
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            document.getElementById("status").textContent =
+              result.title + "\n" + result.message;
+
+            saveButton.textContent = "Saved";
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 900);
+          })
+          .withFailureHandler(function(error) {
+            showError(error.message);
+            saveButton.disabled = false;
+            saveButton.textContent = "Save";
+          })
+          .saveSenderProfile(formData);
+      }
+
+      function editorToSignatureText(root) {
+        return serializeSignatureChildren(root)
+          .replace(/\u00a0/g, " ")
+          .replace(/[ \t]+\n/g, "\n")
+          .replace(/\n[ \t]+/g, "\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+
+
+      function serializeSignatureChildren(node) {
+        let output = "";
+
+        node.childNodes.forEach(function(child) {
+          const serialized = serializeSignatureNode(child);
+
+          if (isBlockNode(child)) {
+            if (output && !output.endsWith("\n")) {
+              output += "\n";
+            }
+
+            output += serialized;
+
+            if (!output.endsWith("\n")) {
+              output += "\n";
+            }
+          } else {
+            output += serialized;
+          }
+        });
+
+        return output;
+      }
+
+
+      function serializeNodeChildren(node) {
+        return serializeSignatureChildren(node);
+      }
+
+
+      function serializeSignatureNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return escapeHtmlText(node.nodeValue || "");
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return "";
+        }
+
+        if (node.dataset && node.dataset.token) {
+          return "{{" + node.dataset.token + "}}";
+        }
+
+        if (node.tagName === "BR") {
+          return "\n";
+        }
+
+        if (node.tagName === "DIV" || node.tagName === "P") {
+          return serializeSignatureChildren(node);
+        }
+
+        if (node.tagName === "A") {
+          const href = node.getAttribute("href") || "";
+          const safeHref = isSafeUrl(href) ? href : "";
+          const text = serializeSignatureChildren(node);
+
+          if (!safeHref) {
+            return text;
+          }
+
+          return '<a href="' + escapeHtmlAttribute(safeHref) + '">' + text + "</a>";
+        }
+
+        if (node.tagName === "B" || node.tagName === "STRONG") {
+          return "<strong>" + serializeSignatureChildren(node) + "</strong>";
+        }
+
+        if (node.tagName === "SPAN") {
+          const content = serializeSignatureChildren(node);
+          const style = node.getAttribute("style") || "";
+
+          if (style) {
+            return '<span style="' + escapeHtmlAttribute(style) + '">' + content + "</span>";
+          }
+
+          return content;
+        }
+
+        if (node.tagName === "FONT") {
+          const color = node.getAttribute("color") || "";
+          const content = serializeSignatureChildren(node);
+
+          if (color) {
+            return '<span style="color:' + escapeHtmlAttribute(color) + ';">' + content + "</span>";
+          }
+
+          return content;
+        }
+
+        return serializeSignatureChildren(node);
+      }
+
+
+      function isBlockNode(node) {
+        return !!(
+          node &&
+          node.nodeType === Node.ELEMENT_NODE &&
+          (node.tagName === "DIV" || node.tagName === "P")
+        );
+      }
+
+      function clearMessages() {
+        document.getElementById("status").textContent = "";
+        document.getElementById("error").textContent = "";
+      }
+
+      function showError(message) {
+        document.getElementById("error").textContent =
+          message || "Something went wrong.";
+      }
+
+      function clearLinkModalError() {
+        document.getElementById("linkModalError").textContent = "";
+      }
+
+      function showLinkModalError(message) {
+        document.getElementById("linkModalError").textContent =
+          message || "Something went wrong.";
+      }
+
+      function normalizeUrl(url) {
+        const trimmed = String(url || "").trim();
+
+        if (/^(https?:\/\/|mailto:)/i.test(trimmed)) {
+          return trimmed;
+        }
+
+        return "https://" + trimmed;
+      }
+
+      function isSafeUrl(url) {
+        return /^(https?:\/\/|mailto:)/i.test(String(url || "").trim());
+      }
+
+      function escapeHtmlAttribute(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/"/g, "&quot;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function escapeHtmlText(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function normalizeKey(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_\s]+/g, " ");
+      }
+
+      initializeSenderForm();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+
+    <style>
+      :root {
+        --navy: #061a2f;
+        --teal: #66c7c8;
+        --teal-soft: #dff6f6;
+        --google-blue: #0b57d0;
+        --google-blue-hover-bg: #eef2fb;
+        --text-primary: #1f1f1f;
+        --text-secondary: #5f6368;
+        --border: #dadce0;
+
+        --star: shape(
+          evenodd from 50% 24.787%,
+          curve by 7.143% 18.016% with 0% 0% / 2.9725% 13.814%,
+          curve by 17.882% 7.197% with 4.171% 4.2025% / 17.882% 7.197%,
+          curve by -17.882% 8.6765% with 0% 0% / -13.711% 4.474%,
+          curve by -7.143% 16.5365% with -4.1705% 4.202% / -7.143% 16.5365%,
+          curve by -8.6115% -16.5365% with 0% 0% / -4.441% -12.3345%,
+          curve by -16.4135% -8.6765% with -4.171% -4.2025% / -16.4135% -8.6765%,
+          curve by 16.4135% -7.197% with 0% 0% / 12.2425% -2.9945%,
+          curve by 8.6115% -18.016% with 4.1705% -4.202% / 8.6115% -18.016%,
+          close
+        );
+
+        --flower: shape(
+          evenodd from 17.9665% 82.0335%,
+          curve by -12.349% -32.0335% with -13.239% -5.129% / -18.021% -15.402%,
+          curve by -0.0275% -22.203% with -3.1825% -9.331% / -3.074% -16.6605%,
+          curve by 12.3765% -9.8305% with 2.3835% -4.3365% / 6.565% -7.579%,
+          curve by 32.0335% -12.349% with 5.129% -13.239% / 15.402% -18.021%,
+          curve by 20.4535% -0.8665% with 8.3805% -2.858% / 15.1465% -3.062%,
+          curve by 11.58% 13.2155% with 5.225% 2.161% / 9.0355% 6.6475%,
+          curve by 12.349% 32.0335% with 13.239% 5.129% / 18.021% 15.402%,
+          curve by 0.5715% 21.1275% with 2.9805% 8.7395% / 3.0745% 15.723%,
+          curve by -12.9205% 10.906% with -2.26% 4.88% / -6.638% 8.472%,
+          curve by -32.0335% 12.349% with -5.129% 13.239% / -15.402% 18.021%,
+          curve by -21.1215% 0.5745% with -8.736% 2.9795% / -15.718% 3.0745%,
+          curve by -10.912% -12.9235% with -4.883% -2.2595% / -8.477% -6.6385%,
+          close
+        );
+
+        --hexagon: shape(
+          evenodd from 6.47% 67.001%,
+          curve by 0% -34.002% with -1.1735% -7.7% / -1.1735% -26.302%,
+          curve by 7.0415% -12.1965% with 0.7075% -4.641% / 3.3765% -9.2635%,
+          curve by 29.447% -17.001% with 6.0815% -4.8665% / 22.192% -14.1675%,
+          curve by 14.083% 0% with 4.3725% -1.708% / 9.7105% -1.708%,
+          curve by 29.447% 17.001% with 7.255% 2.8335% / 23.3655% 12.1345%,
+          curve by 7.0415% 12.1965% with 3.665% 2.933% / 6.334% 7.5555%,
+          curve by 0% 34.002% with 1.1735% 7.7% / 1.1735% 26.302%,
+          curve by -7.0415% 12.1965% with -0.7075% 4.641% / -3.3765% 9.2635%,
+          curve by -29.447% 17.001% with -6.0815% 4.8665% / -22.192% 14.1675%,
+          curve by -14.083% 0% with -4.3725% 1.708% / -9.7105% 1.708%,
+          curve by -29.447% -17.001% with -7.255% -2.8335% / -23.3655% -12.1345%,
+          curve by -7.0415% -12.1965% with -3.665% -2.933% / -6.334% -7.5555%,
+          close
+        );
+
+        --cylinder: shape(
+          evenodd from 10.5845% 59.7305%,
+          curve by 0% -19.461% with -0.113% -1.7525% / -0.11% -18.14%,
+          curve by 10.098% -26.213% with 0.837% -10.0375% / 3.821% -19.2625%,
+          curve by 29.3175% -13.0215% with 7.2175% -7.992% / 17.682% -13.0215%,
+          curve by 19.5845% 5.185% with 7.1265% 0% / 13.8135% 1.887%,
+          curve by 9.8595% 7.9775% with 3.7065% 2.1185% / 7.035% 4.8195%,
+          curve by 9.9715% 26.072% with 6.2015% 6.933% / 9.4345% 16.082%,
+          curve by 0% 19.461% with 0.074% 1.384% / 0.0745% 17.7715%,
+          curve by -13.0065% 29.1155% with -0.511% 11.5345% / -5.021% 21.933%,
+          curve by -26.409% 10.119% with -6.991% 6.288% / -16.254% 10.119%,
+          curve by -20.945% -5.9995% with -7.6935% 0% / -14.8755% -2.199%,
+          curve by -8.713% -7.404% with -3.255% -2.0385% / -6.1905% -4.537%,
+          curve by -9.7575% -25.831% with -6.074% -6.9035% / -9.1205% -15.963%,
+          close
+        );
+
+        --circle: shape(
+          evenodd from 13.482% 79.505%,
+          curve by -7.1945% -12.47% with -1.4985% -1.8575% / -6.328% -10.225%,
+          curve by 0.0985% -33.8965% with -4.1645% -10.7945% / -4.1685% -23.0235%,
+          curve by 6.9955% -12.101% with 1.72% -4.3825% / 4.0845% -8.458%,
+          curve by 30.125% -17.119% with 7.339% -9.1825% / 18.4775% -15.5135%,
+          curve by 13.4165% 0.095% with 4.432% -0.6105% / 8.9505% -0.5855%,
+          curve by 29.364% 16.9% with 11.6215% 1.77% / 22.102% 7.9015%,
+          curve by 7.176% 12.4145% with 3.002% 3.7195% / 5.453% 7.968%,
+          curve by -0.0475% 33.8925% with 4.168% 10.756% / 4.2305% 22.942%,
+          curve by -7.1135% 12.2825% with -1.74% 4.4535% / -4.1455% 8.592%,
+          curve by -29.404% 16.9075% with -7.202% 8.954% / -18.019% 15.137%,
+          curve by -14.19% -0.018% with -4.6635% 0.7255% / -9.4575% 0.7205%,
+          curve by -29.226% -16.8875% with -11.573% -1.8065% / -21.9955% -7.9235%,
+          close
+        );
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        font-family: "Roboto", Arial, sans-serif;
+        color: var(--text-primary);
+        background: #ffffff;
+      }
+
+      .wrap {
+        padding: 14px;
+      }
+
+      .hero {
+        border-radius: 16px;
+        padding: 16px;
+        background:
+          radial-gradient(circle at top right, rgba(102, 199, 200, 0.2), transparent 38%),
+          linear-gradient(135deg, #061a2f 0%, #092846 100%);
+        color: #ffffff;
+        margin-bottom: 14px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .bot-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo-wrap {
+        width: 70px;
+        height: 70px;
+        border-radius: 18px;
+        padding: 5px;
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+        flex: 0 0 auto;
+      }
+
+      .sendmebot-logo {
+        width: 60px;
+        height: 60px;
+        border-radius: 14px;
+        display: block;
+        object-fit: cover;
+      }
+
+      .hero-title-wrap {
+        min-width: 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .hero p {
+        margin: 0;
+        color: #b7e5e6;
+        font-size: 13px;
+        line-height: 1.45;
+        position: relative;
+        z-index: 1;
+      }
+
+      .ai-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 7px;
+        padding: 4px 8px 4px 5px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        color: #dff6f6;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .gemini-animation {
+        width: 18px;
+        height: 18px;
+        aspect-ratio: 1 / 1;
+        position: relative;
+        overflow: hidden;
+        flex: 0 0 auto;
+        display: inline-block;
+      }
+
+      .gemini-animation::before,
+      .gemini-animation > div,
+      .gemini-animation > span {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        transform-origin: 50% 50%;
+      }
+
+      .gemini-animation::before {
+        content: "";
+        clip-path: var(--star);
+        background-color: #fafbfe;
+        z-index: 2;
+        transition: 700ms ease-in-out;
+      }
+
+      .gemini-animation > div,
+      .gemini-animation > span {
+        scale: 0;
+        transition: 700ms ease-in-out;
+        clip-path: var(--circle);
+        z-index: 1;
+      }
+
+      .gemini-animation > div::after,
+      .gemini-animation > span::after {
+        content: "";
+        background: linear-gradient(135deg, #217bfe, #078efb, #ac87eb, #217bfe);
+        width: 400%;
+        height: 400%;
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+
+      .ai-badge:hover .gemini-animation::before,
+      .assistant-banner:hover .gemini-animation::before,
+      .secondary-button:hover .gemini-animation::before {
+        transform: rotate(180deg);
+        background-color: #ffffff;
+      }
+
+      .ai-badge:hover .gemini-animation > div,
+      .assistant-banner:hover .gemini-animation > div,
+      .secondary-button:hover .gemini-animation > span {
+        scale: 1;
+        animation: shapeshift 5s ease-in-out infinite forwards;
+      }
+
+      .ai-badge:hover .gemini-animation > div::after,
+      .assistant-banner:hover .gemini-animation > div::after,
+      .secondary-button:hover .gemini-animation > span::after {
+        animation: gradientMove 3.5s ease-in-out infinite alternate;
+      }
+
+      @keyframes shapeshift {
+        0% {
+          clip-path: var(--circle);
+          rotate: 0turn;
+        }
+
+        25% {
+          clip-path: var(--flower);
+        }
+
+        50% {
+          clip-path: var(--cylinder);
+        }
+
+        75% {
+          clip-path: var(--hexagon);
+        }
+
+        100% {
+          clip-path: var(--circle);
+          rotate: 1turn;
+        }
+      }
+
+      @keyframes gradientMove {
+        0% {
+          translate: 0 0;
+        }
+
+        100% {
+          translate: -75% -75%;
+        }
+      }
+
+      .assistant-banner {
+        width: calc(100% + 28px);
+        min-height: 40px;
+        border: none;
+        border-radius: 0;
+        padding: 0 16px;
+        margin: 0 -14px 14px;
+        background:
+          linear-gradient(
+            110deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.42) 48%,
+            rgba(255, 255, 255, 0) 78%
+          ),
+          linear-gradient(135deg, #edf5ff 0%, #dfeaff 38%, #eee4ff 72%, #f7edff 100%);
+        color: #202124;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+
+        overflow: hidden;
+        position: relative;
+      }
+
+      .assistant-banner .gemini-animation {
+        width: 30px;
+        height: 30px;
+        z-index: 1;
+      }
+
+      .assistant-banner .gemini-animation::before {
+        background-color: #202124;
+      }
+
+      .assistant-banner-text {
+        flex: 1;
+        text-align: left;
+        white-space: nowrap;
+        position: relative;
+        z-index: 1;
+      }
+
+      .secondary-button {
+        width: 100%;
+        min-height: 38px;
+        border: none;
+        border-radius: 19px;
+        padding: 8px 12px;
+        background: #ffffff;
+        color: var(--google-blue);
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .secondary-button:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .secondary-button .gemini-animation {
+        width: 16px;
+        height: 16px;
+      }
+
+      .secondary-button .gemini-animation::before {
+        background-color: var(--google-blue);
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 12px;
+        background: #ffffff;
+      }
+
+      .card-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .body-text {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 5px 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .pill {
+        display: inline-block;
+        margin: 3px 4px 3px 0;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--teal-soft);
+        color: #215f60;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .note {
+        margin-top: 12px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+    </style>
+
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <div class="bot-row">
+          <div class="logo-wrap">
+            <img
+              class="sendmebot-logo"
+              src="https://drive.google.com/thumbnail?id=1FpfsgHc-kNBEUUxEqA7Y5xmpK3IdS1Yg&sz=w240"
+              alt="SendMeBot logo"
+            >
+          </div>
+
+          <div class="hero-title-wrap">
+            <h1>SendMeBot</h1>
+
+            <div class="ai-badge" title="Powered by Gemini">
+              <div class="gemini-animation" aria-hidden="true">
+                <div></div>
+              </div>
+              <span>Powered by Gemini</span>
+            </div>
+          </div>
+        </div>
+
+        <p>
+          Get setup help, examples, and troubleshooting guidance.
+        </p>
+      </div>
+
+      <button class="assistant-banner" onclick="openGem()" aria-label="Open SendMeBot Assistant">
+        <div class="gemini-animation" aria-hidden="true">
+          <div></div>
+        </div>
+        <span class="assistant-banner-text">Open SendMeBot Assistant</span>
+      </button>
+
+      <div class="card">
+        <p class="card-title">Get help with:</p>
+        <div>
+          <span class="pill">Templates</span>
+          <span class="pill">Variables</span>
+          <span class="pill">Images</span>
+          <span class="pill">Senders</span>
+          <span class="pill">Scheduling</span>
+          <span class="pill">Errors</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Quick setup:</p>
+        <ul>
+          <li>Add recipients in <strong>Tracker</strong>.</li>
+          <li>Create emails with <strong>SendMeBot → Compose template</strong>.</li>
+          <li>Add approved senders and signatures in <strong>Senders</strong>.</li>
+          <li>Add reusable image names and Drive links in the image table.</li>
+          <li>Use <strong>SendMeBot → Email selected now</strong> or <strong>Schedule selected</strong>.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Manual variables:</p>
+        <p class="body-text">
+          If editing directly in the sheet, wrap variables in double brackets.
+        </p>
+        <p class="body-text" style="margin-top: 8px;">
+          <strong>{{Name}}</strong><br>
+          <strong>{{Sender Signature}}</strong><br>
+          <strong>{{ET Header}}</strong>
+        </p>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Still stuck?</p>
+        <p class="body-text">
+          Open the assistant and describe what you’re trying to do. Include the sheet/tab name and any error text.
+        </p>
+        <div style="margin-top: 10px;">
+          <button class="secondary-button" onclick="openGem()">
+            <span class="gemini-animation" aria-hidden="true">
+              <span></span>
+            </span>
+            <span>Open assistant</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="note">
+        Assistant opens in a new tab. Gems cannot currently be embedded directly in the sidebar.
+      </div>
+    </div>
+
+    <script>
+      const gemUrl = "<?!= gemUrl ?>";
+      const SENDMEBOT_LOGO_URL = "https://drive.google.com/thumbnail?id=1FpfsgHc-kNBEUUxEqA7Y5xmpK3IdS1Yg&sz=w240";
+
+      function openGem() {
+        window.open(gemUrl, "_blank");
+      }
+    </script>
+  </body>
+</html>

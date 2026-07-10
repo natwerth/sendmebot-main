@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+
+    <style>
+      :root {
+        --google-blue: #0b57d0;
+        --google-blue-hover-bg: #eef2fb;
+        --text-primary: #1f1f1f;
+        --text-secondary: #5f6368;
+        --border: #dadce0;
+        --focus-blue: #1a73e8;
+        --error: #b3261e;
+        --success: #137333;
+        --chip-bg: #f8fafd;
+        --chip-border: #d2e3fc;
+        --status-yellow-bg: #fff2cc;
+        --status-yellow-text: #7f5f00;
+        --status-green-bg: #d9ead3;
+        --status-green-text: #137333;
+        --status-red-bg: #f4cccc;
+        --status-red-text: #b3261e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        font-family: "Roboto", Arial, sans-serif;
+        color: var(--text-primary);
+        background: #ffffff;
+      }
+
+      .dialog {
+        padding: 0;
+      }
+
+      .meta {
+        margin-bottom: 18px;
+        font-size: 14px;
+        line-height: 1.4;
+        color: #3c4043;
+      }
+
+      .meta strong {
+        color: var(--text-primary);
+        font-weight: 600;
+      }
+
+      .warning {
+        margin-top: 6px;
+        color: #b06000;
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      .field {
+        margin-bottom: 18px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 400;
+        color: #3c4043;
+      }
+
+      select,
+      input {
+        width: 100%;
+        height: 38px;
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: #ffffff;
+        color: var(--text-primary);
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 15px;
+        line-height: 1.35;
+      }
+
+      select:hover,
+      input:hover {
+        border-color: #bdc1c6;
+      }
+
+      select:focus,
+      input:focus {
+        border: 3px solid var(--focus-blue);
+        border-color: var(--focus-blue);
+        outline: none;
+        box-shadow: none;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .recipient-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: -8px;
+        margin-bottom: 18px;
+      }
+
+      .mini-button {
+        min-width: 0;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 14px;
+        background: #ffffff;
+        color: var(--google-blue);
+        border: 1px solid var(--chip-border);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .mini-button:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .recipient-panel {
+        margin-top: -6px;
+        margin-bottom: 18px;
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #ffffff;
+      }
+
+      .recipient-panel-title {
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #3c4043;
+      }
+
+      .recipient-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .recipient-chip {
+        min-width: 0;
+        height: 28px;
+        border: 1px solid var(--chip-border);
+        border-radius: 999px;
+        padding: 0 10px;
+        background: #ffffff;
+        color: var(--google-blue);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .recipient-chip:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      .recipient-chip.active {
+        background: var(--google-blue-hover-bg);
+        border-color: var(--google-blue);
+        color: var(--google-blue);
+        font-weight: 700;
+      }
+
+      .empty-state {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+      }
+
+      .button-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      button {
+        min-width: 64px;
+        height: 36px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 18px;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      button.secondary,
+      button.primary {
+        background: #ffffff;
+        color: var(--google-blue);
+      }
+
+      button.secondary:hover,
+      button.primary:hover {
+        background: var(--google-blue-hover-bg);
+      }
+
+      button:disabled {
+        background: #f1f3f4;
+        color: #9aa0a6;
+        cursor: not-allowed;
+      }
+
+      button.status-working:disabled {
+        background: var(--status-yellow-bg);
+        color: var(--status-yellow-text);
+      }
+
+      button.status-success:disabled {
+        background: var(--status-green-bg);
+        color: var(--status-green-text);
+      }
+
+      button.status-failed {
+        background: var(--status-red-bg);
+        color: var(--status-red-text);
+      }
+
+      button.status-failed:hover {
+        background: var(--status-red-bg);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="dialog">
+      <div class="meta">
+        <div><strong id="selectedRowLabel">Emails:</strong> <span id="selectedRowCount">Loading...</span></div>
+
+        <div id="selectionWarning" class="warning hidden">
+          No rows selected. Use the Select column to select recipients.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="template">Template</label>
+        <select id="template">
+          <option value="">Loading templates...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="sender">From</label>
+        <select id="sender">
+          <option value="">Loading senders...</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="toField">To</label>
+        <select id="toField">
+          <option value="">Loading recipient fields...</option>
+        </select>
+      </div>
+
+      <div class="recipient-toggle-row">
+        <button id="ccToggle" type="button" class="mini-button" onclick="toggleRecipientPanel('cc')">+ CC</button>
+        <button id="bccToggle" type="button" class="mini-button" onclick="toggleRecipientPanel('bcc')">+ BCC</button>
+      </div>
+
+      <div id="ccPanel" class="recipient-panel hidden">
+        <div class="recipient-panel-title">CC</div>
+        <div id="ccChips" class="recipient-chips"></div>
+      </div>
+
+      <div id="bccPanel" class="recipient-panel hidden">
+        <div class="recipient-panel-title">BCC</div>
+        <div id="bccChips" class="recipient-chips"></div>
+      </div>
+
+      <div id="scheduleFields" class="hidden">
+        <div class="field">
+          <label for="scheduleChoice">Schedule</label>
+          <select id="scheduleChoice" onchange="handleScheduleChange()">
+            <option value="today">Today</option>
+            <option value="start_minus_7">7 days before Start Date</option>
+            <option value="custom">Custom date</option>
+          </select>
+        </div>
+
+        <div id="customDateWrapper" class="field hidden">
+          <label for="customDate">Custom send date</label>
+          <input id="customDate" type="date">
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="cancelButton" class="secondary" onclick="google.script.host.close()">Cancel</button>
+        <button id="submitButton" class="primary" onclick="submitForm()">OK</button>
+      </div>
+    </div>
+
+    <script>
+      const context = <?!= contextJson ?>;
+
+      function initializeForm() {
+        const rowLabel = context.actionMode === "schedule"
+          ? "Emails to schedule:"
+          : "Emails to send:";
+
+        document.getElementById("selectedRowLabel").textContent = rowLabel;
+
+        document.getElementById("selectedRowCount").textContent =
+          context.selectedRowCount || "0";
+
+        populateSelect("template", context.templates || []);
+        populateSenderSelect();
+        populateRecipientSelect();
+
+        renderRecipientChips("ccChips", "cc");
+        renderRecipientChips("bccChips", "bcc");
+        updateRecipientToggleCounts();
+
+        if (context.actionMode === "schedule") {
+          document.getElementById("scheduleFields").classList.remove("hidden");
+          populateScheduleOptions(context.scheduleOptions || []);
+        }
+
+        const submitButton = document.getElementById("submitButton");
+
+        if (context.selectedRowCount < 1) {
+          document.getElementById("selectionWarning").classList.remove("hidden");
+          submitButton.disabled = true;
+        } else {
+          document.getElementById("selectionWarning").classList.add("hidden");
+          submitButton.disabled = false;
+        }
+      }
+
+      function populateSelect(id, values) {
+        const select = document.getElementById(id);
+        select.innerHTML = "";
+
+        if (!values.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No options found";
+          select.appendChild(option);
+          return;
+        }
+
+        values.forEach(function(value) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = value;
+          select.appendChild(option);
+        });
+      }
+
+      function populateSenderSelect() {
+        const select = document.getElementById("sender");
+        const senderOptions = context.senderOptions || [];
+
+        select.innerHTML = "";
+
+        if (!senderOptions.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No senders found";
+          select.appendChild(option);
+          return;
+        }
+
+        senderOptions.forEach(function(sender) {
+          const option = document.createElement("option");
+
+          // Keep the real value as the email so sender verification still works.
+          option.value = sender.email;
+
+          // Display the friendly sender name in the dropdown.
+          option.textContent = sender.name || sender.email;
+
+          // Hover text shows the email, useful if names are duplicated.
+          option.title = sender.email;
+
+          select.appendChild(option);
+        });
+      }
+
+      function populateRecipientSelect() {
+        const select = document.getElementById("toField");
+        const fields = context.recipientFields || [];
+        select.innerHTML = "";
+
+        if (!fields.length && !(context.senders || []).length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No email fields found";
+          select.appendChild(option);
+          return;
+        }
+
+        fields.forEach(function(field) {
+          const option = document.createElement("option");
+          option.value = JSON.stringify({
+            value: field.header,
+            valueType: "field"
+          });
+          option.textContent = field.label;
+          select.appendChild(option);
+        });
+
+        const senderOption = document.createElement("option");
+        senderOption.value = JSON.stringify({
+          value: "__SELECTED_SENDER__",
+          valueType: "selectedSender"
+        });
+        senderOption.textContent = "Sender";
+        select.appendChild(senderOption);
+      }
+
+      function renderRecipientChips(containerId, type) {
+        const container = document.getElementById(containerId);
+        const fields = context.recipientFields || [];
+        const senderOptions = context.senderOptions || [];
+
+        container.innerHTML = "";
+
+        if (!fields.length && !senderOptions.length) {
+          const empty = document.createElement("p");
+          empty.className = "empty-state";
+          empty.textContent = "No recipient fields or senders found.";
+          container.appendChild(empty);
+          return;
+        }
+
+        fields.forEach(function(field) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "recipient-chip";
+          chip.textContent = field.label;
+          chip.dataset.value = field.header;
+          chip.dataset.valueType = "field";
+          chip.dataset.type = type;
+          chip.onclick = function() {
+            chip.classList.toggle("active");
+            updateRecipientToggleCounts();
+          };
+
+          container.appendChild(chip);
+        });
+
+        senderOptions.forEach(function(sender) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "recipient-chip";
+          chip.textContent = sender.name;
+          chip.title = sender.email;
+          chip.dataset.value = sender.email;
+          chip.dataset.valueType = "email";
+          chip.dataset.type = type;
+          chip.onclick = function() {
+            chip.classList.toggle("active");
+            updateRecipientToggleCounts();
+          };
+
+          container.appendChild(chip);
+        });
+      }
+
+      function toggleRecipientPanel(type) {
+        const panel = document.getElementById(type + "Panel");
+        const isHidden = panel.classList.contains("hidden");
+
+        panel.classList.toggle("hidden", !isHidden);
+        updateRecipientToggleCounts();
+      }
+
+      function updateRecipientToggleCounts() {
+        ["cc", "bcc"].forEach(function(type) {
+          const toggle = document.getElementById(type + "Toggle");
+          const panel = document.getElementById(type + "Panel");
+          const count = getSelectedRecipientItems(type).length;
+          const isHidden = panel.classList.contains("hidden");
+
+          const baseText = isHidden
+            ? "+ " + type.toUpperCase()
+            : "Hide " + type.toUpperCase();
+
+          toggle.textContent = count > 0
+            ? baseText + " (" + count + ")"
+            : baseText;
+        });
+      }
+
+      function getSelectedRecipientItems(type) {
+        return Array.from(document.querySelectorAll('.recipient-chip[data-type="' + type + '"].active'))
+          .map(chip => {
+            return {
+              value: chip.dataset.value,
+              valueType: chip.dataset.valueType || "field"
+            };
+          })
+          .filter(item => item.value);
+      }
+
+      function parseRecipientSelectValue(rawValue) {
+        if (!rawValue) return "";
+
+        try {
+          return JSON.parse(rawValue);
+        } catch (err) {
+          return {
+            value: rawValue,
+            valueType: "field"
+          };
+        }
+      }
+
+      function populateScheduleOptions(options) {
+        const select = document.getElementById("scheduleChoice");
+        select.innerHTML = "";
+
+        options.forEach(function(optionData) {
+          const option = document.createElement("option");
+          option.value = optionData.value;
+          option.textContent = optionData.label;
+          select.appendChild(option);
+        });
+      }
+
+      function handleScheduleChange() {
+        const scheduleChoice = document.getElementById("scheduleChoice").value;
+        const customDateWrapper = document.getElementById("customDateWrapper");
+
+        if (scheduleChoice === "custom") {
+          customDateWrapper.classList.remove("hidden");
+        } else {
+          customDateWrapper.classList.add("hidden");
+        }
+      }
+
+      function submitForm() {
+        const submitButton = document.getElementById("submitButton");
+        const cancelButton = document.getElementById("cancelButton");
+
+        const action = context.actionMode;
+        const template = document.getElementById("template").value;
+        const sender = document.getElementById("sender").value;
+        const toField = parseRecipientSelectValue(document.getElementById("toField").value);
+        const ccFields = getSelectedRecipientItems("cc");
+        const bccFields = getSelectedRecipientItems("bcc");
+
+        const scheduleChoice = document.getElementById("scheduleChoice")
+          ? document.getElementById("scheduleChoice").value
+          : "";
+
+        const customDate = document.getElementById("customDate")
+          ? document.getElementById("customDate").value
+          : "";
+
+        if (!template) {
+          setSubmitButtonState("failed", "Failed");
+          resetSubmitButtonAfterDelay();
+          return;
+        }
+
+        if (!sender) {
+          setSubmitButtonState("failed", "Failed");
+          resetSubmitButtonAfterDelay();
+          return;
+        }
+
+        if (!toField) {
+          setSubmitButtonState("failed", "Failed");
+          resetSubmitButtonAfterDelay();
+          return;
+        }
+
+        if (action === "schedule" && scheduleChoice === "custom" && !customDate) {
+          setSubmitButtonState("failed", "Failed");
+          resetSubmitButtonAfterDelay();
+          return;
+        }
+
+        submitButton.disabled = true;
+        cancelButton.disabled = true;
+
+        setFormDisabled(true);
+        setSubmitButtonState(
+          "working",
+          action === "schedule" ? "Scheduling..." : "Sending..."
+        );
+
+        const formData = {
+          action: action,
+          template: template,
+          sender: sender,
+          toField: toField,
+          ccFields: ccFields,
+          bccFields: bccFields,
+          scheduleChoice: action === "schedule" ? scheduleChoice : "",
+          customDate: action === "schedule" ? customDate : ""
+        };
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            const failed = result && result.failed ? Number(result.failed) : 0;
+            const sent = result && result.sent ? Number(result.sent) : 0;
+            const scheduled = result && result.scheduled ? Number(result.scheduled) : 0;
+            const locked = result && result.locked;
+
+            if (locked || failed > 0 || (sent + scheduled === 0)) {
+              setSubmitButtonState("failed", "Error");
+
+              setTimeout(function() {
+                google.script.host.close();
+              }, 500);
+
+              return;
+            }
+
+            const successText = action === "schedule" ? "Scheduled" : "Sent";
+
+            setSubmitButtonState("success", successText);
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 500);
+          })
+          .withFailureHandler(function() {
+            setSubmitButtonState("failed", "Error");
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 500);
+          })
+          .queueSendFormJob(formData);
+      }
+
+      function setSubmitButtonState(state, text) {
+        const submitButton = document.getElementById("submitButton");
+
+        submitButton.classList.remove(
+          "status-working",
+          "status-success",
+          "status-failed"
+        );
+
+        if (state) {
+          submitButton.classList.add("status-" + state);
+        }
+
+        submitButton.textContent = text;
+      }
+
+      function resetSubmitButtonAfterDelay() {
+        setTimeout(function() {
+          setSubmitButtonState("", "OK");
+        }, 1200);
+      }
+
+      function setFormDisabled(disabled) {
+        document.getElementById("template").disabled = disabled;
+        document.getElementById("sender").disabled = disabled;
+        document.getElementById("toField").disabled = disabled;
+
+        const scheduleChoice = document.getElementById("scheduleChoice");
+        const customDate = document.getElementById("customDate");
+
+        if (scheduleChoice) {
+          scheduleChoice.disabled = disabled;
+        }
+
+        if (customDate) {
+          customDate.disabled = disabled;
+        }
+
+        document.querySelectorAll(".recipient-chip, .mini-button").forEach(function(button) {
+          button.disabled = disabled;
+        });
+      }
+
+      initializeForm();
+    </script>
+  </body>
+</html>
