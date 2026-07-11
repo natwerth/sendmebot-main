@@ -317,7 +317,10 @@ test("trigger setup failure occurs before queue, tracker, or checkbox writes", (
   sandbox.getHeaders_ = () => ({ select: 1 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
-  sandbox.preflightScheduledRows_ = () => ({ validRows: [2], failures: [] });
+  const prepared = { 2: { subject: "Prepared once", metadata: {} } };
+  sandbox.preflightScheduledRows_ = () => ({
+    validRows: [2], failures: [], preparedRows: prepared
+  });
   sandbox.ensureCurrentUserScheduledTrigger_ = () => { throw new Error("authorization required"); };
   sandbox.ensureTrackerColumnForTemplate_ = () => { calls.tracker++; };
   sandbox.saveQueuedJob_ = () => { calls.queue++; };
@@ -332,6 +335,74 @@ test("trigger setup failure occurs before queue, tracker, or checkbox writes", (
     scheduledDisplayText: "Jan 1, 2099, 8:00 AM CST"
   }), /authorization required/);
   assert.deepEqual(calls, { tracker: 0, queue: 0, checkbox: 0 });
+  const preflightSource = emailsSource.slice(
+    emailsSource.indexOf("function preflightScheduledRows_"),
+    emailsSource.indexOf("function queueSendFormJob")
+  );
+  assert.doesNotMatch(preflightSource, /getTemplateStatusColumn_/);
+});
+
+test("document-lock failure leaves selections and tracker statuses intact", () => {
+  const sandbox = loadEmailsSandbox({
+    LockService: {
+      getDocumentLock() { return { tryLock() { return false; }, releaseLock() {} }; },
+      getUserLock() { return createLock(); },
+      getScriptLock() { return createLock(); }
+    }
+  });
+  let cleared = 0;
+  let marked = 0;
+  sandbox.clearSelectedRow_ = () => { cleared++; };
+  sandbox.markSchedulingRowsStarted_ = () => { marked++; };
+  const result = sandbox.processQueuedJobs_({});
+  assert.equal(result.locked, true);
+  assert.equal(cleared, 0);
+  assert.equal(marked, 0);
+});
+
+test("Scheduling status is batch-written and flushed before row processing", () => {
+  const events = [];
+  const tracker = {
+    getRange(row, col) {
+      return { getA1Notation: () => "R" + row + "C" + col };
+    },
+    getRangeList(ranges) {
+      return {
+        setValue(value) { events.push({ type: "batch", ranges, value }); }
+      };
+    }
+  };
+  const spreadsheet = {
+    getSheetByName(name) { return name === "Templates" ? {} : null; },
+    toast() {}
+  };
+  const sandbox = loadEmailsSandbox({
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => spreadsheet,
+      flush() { events.push({ type: "flush" }); }
+    }
+  });
+  sandbox.getTrackerSheet_ = () => tracker;
+  sandbox.getHeaders_ = () => ({ status: 1, select: 3 });
+  sandbox.getTemplateStatusColumn_ = () => 2;
+  sandbox.clearSelectedRow_ = () => {};
+  sandbox.scheduleOneRow_ = (ss, sheet, row) => {
+    events.push({ type: "row", row });
+    return { status: "scheduled", row, error: "" };
+  };
+
+  sandbox.processOneQueuedJob_({
+    action: "schedule", rows: [2, 5], attemptedRows: [2, 5],
+    template: "Welcome", sender: "owner@akamai.com",
+    scheduledForIso: "2099-01-01T14:00:00.000Z"
+  }, {});
+
+  assert.deepEqual(events.slice(0, 4), [
+    { type: "batch", ranges: ["R2C2", "R5C2"], value: "Scheduling..." },
+    { type: "batch", ranges: ["R2C1", "R5C1"], value: "Scheduling..." },
+    { type: "flush" },
+    { type: "row", row: 2 }
+  ]);
 });
 
 test("scheduling writes its job only after trigger readiness is verified", () => {
@@ -346,7 +417,10 @@ test("scheduling writes its job only after trigger readiness is verified", () =>
   sandbox.getHeaders_ = () => ({ select: 1 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
-  sandbox.preflightScheduledRows_ = () => ({ validRows: [2], failures: [] });
+  const prepared = { 2: { subject: "Prepared once", metadata: {} } };
+  sandbox.preflightScheduledRows_ = () => ({
+    validRows: [2], failures: [], preparedRows: prepared
+  });
   sandbox.ensureCurrentUserScheduledTrigger_ = () => {
     triggerReady = true;
     return { status: "ready" };
@@ -355,14 +429,18 @@ test("scheduling writes its job only after trigger readiness is verified", () =>
     assert.equal(triggerReady, true);
     return 2;
   };
+  sandbox.getTemplateStatusColumn_ = () => 2;
   sandbox.saveQueuedJob_ = () => {
     assert.equal(triggerReady, true);
     queued = true;
   };
-  sandbox.processQueuedJobs = () => ({
-    attempted: 1, successful: 1, sent: 0, scheduled: 1, failed: 0,
-    successfulRows: [2], failedRows: [], errors: [], skipped: 0, locked: false
-  });
+  sandbox.processQueuedJobs_ = preparedJobs => {
+    assert.equal(Object.values(preparedJobs)[0], prepared);
+    return {
+      attempted: 1, successful: 1, sent: 0, scheduled: 1, failed: 0,
+      successfulRows: [2], failedRows: [], errors: [], skipped: 0, locked: false
+    };
+  };
 
   const result = sandbox.queueSendFormJob({
     action: "schedule",
@@ -376,7 +454,7 @@ test("scheduling writes its job only after trigger readiness is verified", () =>
   assert.equal(result.scheduled, 1);
 });
 
-test("progressive immediate and scheduled clearing affects only successful rows", () => {
+test("row-level immediate and scheduled attempts all clear their selections", () => {
   const tracker = {};
   const spreadsheet = {
     getSheetByName(name) { return name === "Templates" ? {} : null; },
@@ -399,7 +477,7 @@ test("progressive immediate and scheduled clearing affects only successful rows"
     action: "send_now", rows: [2, 3, 6], attemptedRows: [2, 3, 6],
     template: "Welcome", sender: "owner@akamai.com"
   });
-  assert.deepEqual(cleared, [2]);
+  assert.deepEqual(cleared, [2, 3, 6]);
   assert.equal(immediate.successful, 1);
   assert.equal(immediate.failed, 2);
   assert.deepEqual(Array.from(immediate.successfulRows), [2]);
@@ -411,12 +489,13 @@ test("progressive immediate and scheduled clearing affects only successful rows"
     row,
     error: row === 4 ? "" : "fake scheduling failure"
   });
+  sandbox.markSchedulingRowsStarted_ = () => {};
   const scheduled = sandbox.processOneQueuedJob_({
     action: "schedule", rows: [4, 5], attemptedRows: [4, 5],
     template: "Welcome", sender: "owner@akamai.com",
     scheduledForIso: "2099-01-01T14:00:00.000Z"
   });
-  assert.deepEqual(cleared, [4]);
+  assert.deepEqual(cleared, [4, 5]);
   assert.equal(scheduled.successful, 1);
   assert.equal(scheduled.failed, 1);
 });
@@ -475,6 +554,12 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
   assert.match(formSource, /id="senderProfileEmail" type="email" readonly/);
   assert.match(formSource, /id="senderOnboarding"/);
   assert.doesNotMatch(formSource, /<select id="sender">/);
+  assert.match(formSource, /button-loading-sweep 1\.25s linear infinite/);
+  assert.doesNotMatch(formSource, /id="senderDisplaySignature"/);
+  assert.ok(
+    script.indexOf('setSubmitButtonState(\n          "working"') <
+    script.indexOf(".queueSendFormJob(formData)")
+  );
 });
 
 test("repository contains no GmailApp and tests never use live triggers or real mail", () => {

@@ -524,19 +524,42 @@ function preflightScheduledRows_(ss, sheet, rows, headers, templateKey, sender, 
   const template = getTemplateByKey_(templateSheet, templateKey);
   const validRows = [];
   const failures = [];
+  const preparedRows = {};
 
   rows.forEach(row => {
     try {
       const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
       if (!recipients.to) throw new Error("Missing recipient email.");
-      buildEmailPayload_(ss, sheet, row, headers, template, sender);
+      const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
+      const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
+      const metadata = getFrozenDeliveryMetadata_(
+        ss,
+        sheet,
+        row,
+        0,
+        template,
+        payload,
+        { scheduledTimeZone: "", scheduledDisplayText: "" }
+      );
+
+      // Keep only JSON-safe values needed to write the durable Sent row. Blob
+      // objects stay out of the document-properties job queue.
+      preparedRows[row] = {
+        statusHeaderCol: 0,
+        recipients: recipients,
+        name: name,
+        subject: payload.subject,
+        plainBody: payload.plainBody,
+        attachmentNames: payload.attachmentNames || "",
+        metadata: metadata
+      };
       validRows.push(row);
     } catch (err) {
       failures.push({ row: row, error: err.message || String(err) });
     }
   });
 
-  return { validRows: validRows, failures: failures };
+  return { validRows: validRows, failures: failures, preparedRows: preparedRows };
 }
 
 function queueSendFormJob(formData) {
@@ -584,6 +607,7 @@ function queueSendFormJob(formData) {
   };
   let rowsToProcess = selectedRows.slice();
   let preflightFailures = [];
+  let preparedRows = {};
 
   if (action === "schedule") {
     const preflight = preflightScheduledRows_(
@@ -597,8 +621,11 @@ function queueSendFormJob(formData) {
     );
     rowsToProcess = preflight.validRows;
     preflightFailures = preflight.failures;
+    preparedRows = preflight.preparedRows;
 
     if (!rowsToProcess.length) {
+      preflightFailures.forEach(item => clearSelectedRow_(sheet, headers, item.row));
+      SpreadsheetApp.flush();
       return {
         title: "Scheduling failed",
         action: action,
@@ -623,6 +650,14 @@ function queueSendFormJob(formData) {
 
   ensureTrackerColumnForTemplate_(templateKey);
   headers = getHeaders_(sheet);
+  if (action === "schedule") {
+    const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey, false);
+    if (!statusHeaderCol) throw new Error("Template tracker column could not be verified.");
+    rowsToProcess.forEach(row => {
+      preparedRows[row].statusHeaderCol = statusHeaderCol;
+      preparedRows[row].metadata.sourceStatusColumn = statusHeaderCol;
+    });
+  }
 
   const job = {
     jobId: makeJobId_(),
@@ -646,7 +681,9 @@ function queueSendFormJob(formData) {
 
   // Current modeless flow: process immediately after handoff.
   // Backup menu/trigger can still process orphaned jobs.
-  const result = processQueuedJobs() || {
+  const preparedJobs = {};
+  preparedJobs[job.jobId] = preparedRows;
+  const result = processQueuedJobs_(preparedJobs) || {
     attempted: selectedRows.length,
     successful: 0,
     sent: 0,
@@ -731,6 +768,10 @@ function saveQueuedJob_(job) {
 
 
 function processQueuedJobs() {
+  return processQueuedJobs_({});
+}
+
+function processQueuedJobs_(preparedJobs) {
   const lock = LockService.getDocumentLock();
 
   const summary = {
@@ -764,7 +805,7 @@ function processQueuedJobs() {
 
     jobs.forEach(job => {
       try {
-        const result = processOneQueuedJob_(job) || {};
+        const result = processOneQueuedJob_(job, (preparedJobs || {})[job.jobId] || {}) || {};
 
         summary.attempted += result.attempted || 0;
         summary.successful += result.successful || 0;
@@ -795,7 +836,7 @@ function processQueuedJobs() {
 }
 
 
-function processOneQueuedJob_(job) {
+function processOneQueuedJob_(job, preparedRows) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getTrackerSheet_();
   const templateSheet = ss.getSheetByName("Templates");
@@ -839,15 +880,15 @@ function processOneQueuedJob_(job) {
       if (result.status === "sent") {
         sentCount++;
         successfulRows.push(row);
-        try {
-          clearSelectedRow_(sheet, headers, row);
-        } catch (checkboxErr) {
-          Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
-        }
       } else {
         failedCount++;
         failedRows.push(row);
         errors.push({ row: row, error: result.error || "Email failed." });
+      }
+      try {
+        clearSelectedRow_(sheet, headers, row);
+      } catch (checkboxErr) {
+        Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
       }
     });
     try {
@@ -878,9 +919,17 @@ function processOneQueuedJob_(job) {
   if (job.action === "schedule") {
     const scheduledDate = parseScheduledInstant_(job.scheduledForIso);
 
-    rows.forEach(row => {
-      headers = getHeaders_(sheet);
+    markSchedulingRowsStarted_(sheet, headers, rows, job.template);
 
+    preflightFailures.forEach(item => {
+      try {
+        clearSelectedRow_(sheet, headers, item.row);
+      } catch (checkboxErr) {
+        Logger.log("CHECKBOX CLEAR ERROR row " + item.row + ": " + checkboxErr.message);
+      }
+    });
+
+    rows.forEach(row => {
       let result;
       try {
         result = scheduleOneRow_(
@@ -893,7 +942,8 @@ function processOneQueuedJob_(job) {
           scheduledDate,
           job.scheduledTimeZone,
           job.scheduledDisplayText,
-          recipientConfig
+          recipientConfig,
+          preparedRows && preparedRows[row]
         );
       } catch (err) {
         result = { status: "failed", row: row, error: err.message || String(err) };
@@ -902,15 +952,15 @@ function processOneQueuedJob_(job) {
       if (result.status === "scheduled") {
         scheduledCount++;
         successfulRows.push(row);
-        try {
-          clearSelectedRow_(sheet, headers, row);
-        } catch (checkboxErr) {
-          Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
-        }
       } else {
         failedCount++;
         failedRows.push(row);
         errors.push({ row: row, error: result.error || "Scheduling failed." });
+      }
+      try {
+        clearSelectedRow_(sheet, headers, row);
+      } catch (checkboxErr) {
+        Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
       }
     });
     try {
@@ -939,6 +989,22 @@ function processOneQueuedJob_(job) {
   }
 
   throw new Error("Unknown queued action: " + job.action);
+}
+
+function markSchedulingRowsStarted_(sheet, headers, rows, templateKey) {
+  if (!rows.length) return;
+
+  const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey, true);
+  const statusCol = headers["status"];
+  const templateRanges = rows.map(row => sheet.getRange(row, statusHeaderCol).getA1Notation());
+  sheet.getRangeList(templateRanges).setValue("Scheduling...");
+
+  if (statusCol) {
+    const statusRanges = rows.map(row => sheet.getRange(row, statusCol).getA1Notation());
+    sheet.getRangeList(statusRanges).setValue("Scheduling...");
+  }
+
+  SpreadsheetApp.flush();
 }
 
 function getCurrentUserScheduledTriggerState_(runtime) {
@@ -1248,7 +1314,8 @@ function scheduleOneRow_(
   scheduledDate,
   scheduledTimeZone,
   scheduledDisplayText,
-  recipientConfig
+  recipientConfig,
+  preparedRow
 ) {
   const statusCol = headers["status"];
   let queueRowWritten = false;
@@ -1263,31 +1330,36 @@ function scheduleOneRow_(
       throw new Error("Sender does not match the authenticated Google account.");
     }
 
-    const statusHeaderCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
-    sheet.getRange(row, statusHeaderCol).setValue("Scheduling...");
-    setStatus_(sheet, row, statusCol, "Scheduling...");
+    let prepared = preparedRow;
+    if (!prepared) {
+      const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
+      if (!recipients.to) throw new Error("Missing recipient email.");
+      const templateSheet = ss.getSheetByName("Templates");
+      if (!templateSheet) throw new Error("Missing Templates sheet.");
+      const template = getTemplateByKey_(templateSheet, templateKey);
+      const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
+      const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey, true);
+      prepared = {
+        statusHeaderCol: statusHeaderCol,
+        recipients: recipients,
+        name: getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig),
+        subject: payload.subject,
+        plainBody: payload.plainBody,
+        attachmentNames: payload.attachmentNames || "",
+        metadata: getFrozenDeliveryMetadata_(ss, sheet, row,
+          statusHeaderCol, template, payload, {
+            scheduledTimeZone: scheduledTimeZone,
+            scheduledDisplayText: scheduledDisplayText
+          })
+      };
+    }
 
-    const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
-    const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
-    if (!recipients.to) throw new Error("Missing recipient email.");
-
-    const templateSheet = ss.getSheetByName("Templates");
-    if (!templateSheet) throw new Error("Missing Templates sheet.");
-
-    const template = getTemplateByKey_(templateSheet, templateKey);
-    const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
-    const metadata = getFrozenDeliveryMetadata_(
-      ss,
-      sheet,
-      row,
-      statusHeaderCol,
-      template,
-      payload,
-      {
-        scheduledTimeZone: scheduledTimeZone,
-        scheduledDisplayText: scheduledDisplayText
-      }
-    );
+    const statusHeaderCol = prepared.statusHeaderCol;
+    const recipients = prepared.recipients;
+    const metadata = Object.assign({}, prepared.metadata, {
+      scheduledTimeZone: scheduledTimeZone,
+      scheduledDisplayText: scheduledDisplayText
+    });
 
     queueRow = logSentEmail_(ss, {
       timestamp: new Date(),
@@ -1295,15 +1367,15 @@ function scheduleOneRow_(
       scheduledFor: new Date(scheduledDate.getTime()),
       processedAt: "",
       message: "Email scheduled for " + scheduledDisplayText + ".",
-      name: name,
+      name: prepared.name,
       email: recipients.to,
       sender: sender,
       cc: recipients.cc,
       bcc: recipients.bcc,
       template: templateKey,
-      subject: payload.subject,
-      body: payload.plainBody,
-      attachments: payload.attachmentNames || "",
+      subject: prepared.subject,
+      body: prepared.plainBody,
+      attachments: prepared.attachmentNames,
       logNote: JSON.stringify(metadata)
     });
     queueRowWritten = true;
