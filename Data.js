@@ -1,46 +1,109 @@
-// --- Senders sheet helpers: sender table A:C, image table E:G ---
+// --- Senders sheet helpers: sender table A:C, separator D, image table E:G ---
 
-function getSenderProfile_(ss, senderEmail) {
-  const sheet = ss.getSheetByName("Senders");
+function getAuthenticatedUserEmail_(runtime) {
+  const session = runtime && runtime.session ? runtime.session : Session;
+  const email = String(session.getEffectiveUser().getEmail() || "").trim();
 
-  if (!sheet) {
-    return {
-      name: "",
-      email: senderEmail,
-      signatureText: "",
-      signatureRichText: null
-    };
+  if (!email) {
+    throw new Error(
+      "Your authenticated Google account could not be determined. " +
+      "Reload the spreadsheet and authorize SendMeBot before continuing."
+    );
   }
 
+  return email;
+}
+
+function getSenderTableColumns_(sheet, allowInitialize) {
+  const rawHeaders = sheet.getRange(1, 1, 1, 3).getValues()[0];
+  const allBlank = rawHeaders.every(value => !String(value || "").trim());
+
+  if (allBlank && allowInitialize) {
+    sheet.getRange(1, 1, 1, 3).setValues([["Name", "Email", "Signature"]]);
+    return { name: 1, email: 2, signature: 3 };
+  }
+  if (allBlank) return null;
+
+  const columns = {};
+  rawHeaders.forEach((header, index) => {
+    const key = normalize_(header).replace(/^sender\s+/, "");
+    if (key === "name" || key === "email" || key === "signature") {
+      columns[key] = index + 1;
+    }
+  });
+
+  if (!columns.name || !columns.email || !columns.signature) {
+    throw new Error(
+      "The Senders sender table must use Name, Email, and Signature in columns A:C."
+    );
+  }
+
+  return columns;
+}
+
+function getSenderMatches_(sheet, senderEmail) {
+  const columns = getSenderTableColumns_(sheet, false);
+  if (!columns) return [];
   const lastRow = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    return {
-      name: "",
-      email: senderEmail,
-      signatureText: "",
-      signatureRichText: null
-    };
-  }
+  if (lastRow < 2) return [];
 
   const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const matches = [];
 
-  for (let i = 0; i < values.length; i++) {
-    const rowNumber = i + 2;
-    const name = String(values[i][0] || "").trim();
-    const email = String(values[i][1] || "").trim();
+  values.forEach((rowValues, index) => {
+    const email = String(rowValues[columns.email - 1] || "").trim();
+    if (normalize_(email) !== normalize_(senderEmail)) return;
 
-    if (normalize_(email) === normalize_(senderEmail)) {
-      const signatureCell = sheet.getRange(rowNumber, 3);
+    const row = index + 2;
+    const signatureCell = sheet.getRange(row, columns.signature);
+    matches.push({
+      row: row,
+      name: String(rowValues[columns.name - 1] || "").trim(),
+      email: email,
+      signatureText: signatureCell.getDisplayValue(),
+      signatureRichText: signatureCell.getRichTextValue()
+    });
+  });
 
-      return {
-        name: name,
-        email: email,
-        signatureText: signatureCell.getDisplayValue(),
-        signatureRichText: signatureCell.getRichTextValue()
-      };
-    }
+  return matches;
+}
+
+function getSenderStateForEmail_(ss, senderEmail) {
+  const sheet = ss.getSheetByName("Senders");
+  if (!sheet) {
+    return { status: "missing", email: senderEmail, record: null, duplicateCount: 0 };
   }
+
+  const matches = getSenderMatches_(sheet, senderEmail);
+  if (matches.length > 1) {
+    return {
+      status: "duplicate",
+      email: senderEmail,
+      record: null,
+      duplicateCount: matches.length
+    };
+  }
+
+  if (!matches.length) {
+    return { status: "missing", email: senderEmail, record: null, duplicateCount: 0 };
+  }
+
+  if (!matches[0].name) {
+    return { status: "invalid", email: senderEmail, record: matches[0], duplicateCount: 0 };
+  }
+
+  return { status: "ready", email: senderEmail, record: matches[0], duplicateCount: 0 };
+}
+
+function getSenderProfile_(ss, senderEmail) {
+  const state = getSenderStateForEmail_(ss, senderEmail);
+  if (state.status === "duplicate") {
+    throw new Error(
+      "Duplicate sender profiles exist for " + senderEmail + ". Resolve them before sending."
+    );
+  }
+
+  if (state.status === "ready") return state.record;
 
   return {
     name: "",
@@ -50,95 +113,134 @@ function getSenderProfile_(ss, senderEmail) {
   };
 }
 
+function getSenderSignatureEditorHtml_(profile) {
+  const richText = profile && profile.signatureRichText;
+  if (!richText || typeof richText.getRuns !== "function") {
+    return escapeHtml_(String((profile && profile.signatureText) || "")).replace(/\n/g, "<br>");
+  }
 
-function getSenderEmails_(sendersSheet) {
-  const lastRow = sendersSheet.getLastRow();
+  return richText.getRuns().map(run => {
+    let html = escapeHtml_(String(run.getText() || "")).replace(/\n/g, "<br>");
+    const style = run.getTextStyle ? run.getTextStyle() : null;
+    let css = "";
 
-  if (lastRow < 2) return [];
-
-  const values = sendersSheet.getRange(2, 2, lastRow - 1, 1).getValues();
-  const emails = [];
-
-  values.forEach(row => {
-    const email = String(row[0] || "").trim();
-
-    if (email && emails.indexOf(email) === -1) {
-      emails.push(email);
+    if (style) {
+      if (style.isBold && style.isBold()) html = "<strong>" + html + "</strong>";
+      const color = style.getForegroundColor ? style.getForegroundColor() : "";
+      const size = style.getFontSize ? style.getFontSize() : "";
+      if (color) css += "color:" + color + ";";
+      if (size) css += "font-size:" + size + "pt;";
     }
-  });
 
-  return emails;
+    if (css) html = '<span style="' + css + '">' + html + "</span>";
+
+    const link = run.getLinkUrl ? String(run.getLinkUrl() || "") : "";
+    if (/^(https?:\/\/|mailto:)/i.test(link)) {
+      html = '<a href="' + escapeHtml_(link) + '">' + html + "</a>";
+    }
+
+    return html;
+  }).join("");
+}
+
+function getCurrentUserSenderState_(ss, runtime) {
+  const email = runtime && runtime.authenticatedEmail
+    ? String(runtime.authenticatedEmail).trim()
+    : getAuthenticatedUserEmail_(runtime);
+  return getSenderStateForEmail_(ss, email);
+}
+
+function findAvailableSenderRow_(sheet, columns) {
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  if (lastRow < 2) return 2;
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  for (let i = 0; i < values.length; i++) {
+    const hasSenderData = [columns.name, columns.email, columns.signature]
+      .some(col => String(values[i][col - 1] || "").trim());
+    if (!hasSenderData) return i + 2;
+  }
+
+  return lastRow + 1;
 }
 
 function saveSenderProfile(formData) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("Senders");
+  return saveSenderProfile_(formData);
+}
 
-  if (!sheet) {
-    sheet = ss.insertSheet("Senders");
-    sheet.getRange(1, 1, 1, 3).setValues([[
-      "Sender Name",
-      "Sender Email",
-      "Sender Signature"
-    ]]);
+function saveSenderProfile_(formData, runtime) {
+  const options = runtime || {};
+  const ss = options.spreadsheet || SpreadsheetApp.getActiveSpreadsheet();
+  const authenticatedEmail = options.authenticatedEmail || getAuthenticatedUserEmail_(options);
+  const submittedEmail = String((formData && formData.email) || "").trim();
+  const name = String((formData && formData.name) || "").trim();
+  const signature = String((formData && formData.signature) || "").trim();
+
+  if (submittedEmail && normalize_(submittedEmail) !== normalize_(authenticatedEmail)) {
+    throw new Error("Sender email must match your authenticated Google account.");
   }
-
-  const name = String(formData.name || "").trim();
-  const email = String(formData.email || "").trim();
-  const signature = String(formData.signature || "").trim();
-
   if (!name) throw new Error("Sender name is required.");
-  if (!email) throw new Error("Sender email is required.");
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Enter a valid sender email address.");
-  }
+  const lock = options.lock || LockService.getDocumentLock();
+  lock.waitLock(30000);
 
-  const lastRow = sheet.getLastRow();
-  let targetRow = null;
+  try {
+    let sheet = ss.getSheetByName("Senders");
+    if (!sheet) sheet = ss.insertSheet("Senders");
 
-  if (lastRow >= 2) {
-    const values = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    const columns = getSenderTableColumns_(sheet, true);
+    const matches = getSenderMatches_(sheet, authenticatedEmail);
 
-    for (let i = 0; i < values.length; i++) {
-      const existingEmail = String(values[i][1] || "").trim();
-
-      if (normalize_(existingEmail) === normalize_(email)) {
-        targetRow = i + 2;
-        break;
-      }
+    if (matches.length > 1) {
+      throw new Error(
+        "Duplicate sender profiles exist for " + authenticatedEmail +
+        ". Remove the duplicate rows before continuing."
+      );
     }
+
+    const targetRow = matches.length
+      ? matches[0].row
+      : findAvailableSenderRow_(sheet, columns);
+
+    sheet.getRange(targetRow, columns.name).setValue(name);
+    sheet.getRange(targetRow, columns.email).setValue(authenticatedEmail);
+
+    const signatureRange = sheet.getRange(targetRow, columns.signature);
+    if (signature) {
+      const buildRichText = options.buildRichText || buildRichTextValueFromTemplateHtml_;
+      signatureRange.setRichTextValue(buildRichText(signature));
+    } else {
+      signatureRange.setValue("");
+    }
+
+    sheet.getRange(targetRow, 1, 1, 3).setWrap(true);
+
+    const savedState = getSenderStateForEmail_(ss, authenticatedEmail);
+    if (savedState.status !== "ready") {
+      throw new Error("Sender profile could not be verified after saving.");
+    }
+
+    if (!options.suppressToast) {
+      ss.toast("Sender saved: " + authenticatedEmail, "SendMeBot", 5);
+    }
+
+    return {
+      title: "Sender saved",
+      message: name + " <" + authenticatedEmail + ">",
+      senderState: {
+        status: "ready",
+        email: authenticatedEmail,
+        duplicateCount: 0,
+        record: {
+          name: savedState.record.name,
+          email: authenticatedEmail,
+          signature: savedState.record.signatureText || ""
+        }
+      }
+    };
+  } finally {
+    lock.releaseLock();
   }
-
-  if (!targetRow) {
-    targetRow = sheet.getLastRow() + 1;
-  }
-
-  sheet.getRange(targetRow, 1).setValue(name);
-  sheet.getRange(targetRow, 2).setValue(email);
-
-  const signatureRange = sheet.getRange(targetRow, 3);
-
-  if (signature) {
-    signatureRange.setRichTextValue(buildRichTextValueFromTemplateHtml_(signature));
-  } else {
-    signatureRange.setValue("");
-  }
-
-  sheet.getRange(targetRow, 1, 1, 3).setWrap(true);
-
-  refreshFormCache();
-
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    "Sender saved: " + email,
-    "SendMeBot",
-    5
-  );
-
-  return {
-    title: "Sender saved",
-    message: name + " <" + email + ">"
-  };
 }
 
 // --- Image helpers ---
@@ -331,11 +433,11 @@ function getSelectedRows_(sheet, headers) {
 }
 
 
-function clearSelectedRows_(sheet, headers, rows) {
+function clearSelectedRow_(sheet, headers, row) {
   const selectCol = headers["select"];
-  if (!selectCol) return;
+  if (!selectCol || !row) return;
 
-  rows.forEach(row => sheet.getRange(row, selectCol).setValue(false));
+  sheet.getRange(row, selectCol).setValue(false);
 }
 
 

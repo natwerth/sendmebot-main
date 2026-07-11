@@ -62,6 +62,65 @@
         margin-bottom: 18px;
       }
 
+      .sender-card,
+      .sender-onboarding {
+        margin-bottom: 18px;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #f8fafd;
+      }
+
+      .sender-title {
+        margin-bottom: 6px;
+        color: #3c4043;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .sender-name {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .sender-email,
+      .helper-text {
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .sender-onboarding textarea {
+        width: 100%;
+        min-height: 72px;
+        padding: 8px 10px;
+        resize: vertical;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font: 14px/1.4 "Roboto", Arial, sans-serif;
+      }
+
+      .inline-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+      }
+
+      .form-message {
+        margin: 8px 0;
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-line;
+      }
+
+      .form-message.error {
+        color: var(--error);
+      }
+
+      .form-message.success {
+        color: var(--success);
+      }
+
       .schedule-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 96px;
@@ -272,12 +331,34 @@
         </select>
       </div>
 
-      <div class="field">
-        <label for="sender">From</label>
-        <select id="sender">
-          <option value="">Loading senders...</option>
-        </select>
+      <div id="senderReady" class="sender-card hidden" aria-live="polite">
+        <div class="sender-title">Sending from</div>
+        <div id="senderDisplayName" class="sender-name"></div>
+        <div id="senderDisplayEmail" class="sender-email"></div>
+        <div id="senderDisplaySignature" class="helper-text"></div>
       </div>
+
+      <div id="senderOnboarding" class="sender-onboarding hidden">
+        <div class="sender-title">Set up your sender profile</div>
+        <div class="field">
+          <label for="senderProfileEmail">Email</label>
+          <input id="senderProfileEmail" type="email" readonly aria-readonly="true">
+        </div>
+        <div class="field">
+          <label for="senderProfileName">Name</label>
+          <input id="senderProfileName" type="text" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="senderProfileSignature">Signature</label>
+          <textarea id="senderProfileSignature" placeholder="All the best,&#10;Your name"></textarea>
+        </div>
+        <div id="senderProfileError" class="form-message error hidden" role="alert"></div>
+        <div class="inline-actions">
+          <button id="saveSenderButton" type="button" class="primary" onclick="saveInlineSenderProfile()">Save profile</button>
+        </div>
+      </div>
+
+      <div id="senderBlockingError" class="form-message error hidden" role="alert"></div>
 
       <div class="field">
         <label for="toField">To</label>
@@ -316,9 +397,12 @@
         <div class="schedule-helper">
           <div id="scheduleTimeZone">Times use your browser timezone.</div>
           <div>Scheduled emails are processed periodically and may send several minutes after the selected time.</div>
+          <div id="triggerState"></div>
           <div id="scheduleError" class="schedule-error hidden"></div>
         </div>
       </div>
+
+      <div id="completionMessage" class="form-message hidden" role="status" aria-live="polite"></div>
 
       <div class="button-row">
         <button id="cancelButton" class="secondary" onclick="google.script.host.close()">Cancel</button>
@@ -328,6 +412,8 @@
 
     <script>
       const context = <?!= contextJson ?>;
+      let selectedRowCount = Number(context.selectedRowCount || 0);
+      let isSubmitting = false;
 
       function initializeForm() {
         const rowLabel = context.actionMode === "schedule"
@@ -336,11 +422,10 @@
 
         document.getElementById("selectedRowLabel").textContent = rowLabel;
 
-        document.getElementById("selectedRowCount").textContent =
-          context.selectedRowCount || "0";
+        document.getElementById("selectedRowCount").textContent = selectedRowCount;
 
         populateSelect("template", context.templates || []);
-        populateSenderSelect();
+        renderSenderState();
         populateRecipientSelect();
 
         renderRecipientChips("ccChips", "cc");
@@ -350,17 +435,16 @@
         if (context.actionMode === "schedule") {
           document.getElementById("scheduleFields").classList.remove("hidden");
           initializeScheduleFields();
+          renderTriggerState();
         }
 
-        const submitButton = document.getElementById("submitButton");
-
-        if (context.selectedRowCount < 1) {
+        if (selectedRowCount < 1) {
           document.getElementById("selectionWarning").classList.remove("hidden");
-          submitButton.disabled = true;
         } else {
           document.getElementById("selectionWarning").classList.add("hidden");
-          submitButton.disabled = false;
         }
+
+        updateSubmitButton();
       }
 
       function populateSelect(id, values) {
@@ -383,34 +467,61 @@
         });
       }
 
-      function populateSenderSelect() {
-        const select = document.getElementById("sender");
-        const senderOptions = context.senderOptions || [];
+      function renderSenderState() {
+        const ready = document.getElementById("senderReady");
+        const onboarding = document.getElementById("senderOnboarding");
+        const blocking = document.getElementById("senderBlockingError");
+        const state = context.senderState || { status: "blocked" };
 
-        select.innerHTML = "";
+        ready.classList.add("hidden");
+        onboarding.classList.add("hidden");
+        blocking.classList.add("hidden");
 
-        if (!senderOptions.length) {
-          const option = document.createElement("option");
-          option.value = "";
-          option.textContent = "No senders found";
-          select.appendChild(option);
+        if (context.blockingError) {
+          blocking.textContent = context.blockingError;
+          blocking.classList.remove("hidden");
           return;
         }
 
-        senderOptions.forEach(function(sender) {
-          const option = document.createElement("option");
+        if (state.status === "duplicate") {
+          blocking.textContent =
+            "Duplicate sender profiles exist for " + context.authenticatedEmail +
+            ". Remove the duplicate rows from the Senders sheet before continuing.";
+          blocking.classList.remove("hidden");
+          return;
+        }
 
-          // Keep the real value as the email so sender verification still works.
-          option.value = sender.email;
+        if (state.status === "ready" && state.record) {
+          document.getElementById("senderDisplayName").textContent = state.record.name;
+          document.getElementById("senderDisplayEmail").textContent = context.authenticatedEmail;
+          document.getElementById("senderDisplaySignature").textContent =
+            state.record.signature ? "Signature: " + state.record.signature : "No signature";
+          ready.classList.remove("hidden");
+          return;
+        }
 
-          // Display the friendly sender name in the dropdown.
-          option.textContent = sender.name || sender.email;
+        document.getElementById("senderProfileEmail").value = context.authenticatedEmail || "";
+        if (state.record) {
+          document.getElementById("senderProfileName").value = state.record.name || "";
+          document.getElementById("senderProfileSignature").value = state.record.signature || "";
+        }
+        onboarding.classList.remove("hidden");
+        setTimeout(function() {
+          document.getElementById("senderProfileName").focus();
+        }, 0);
+      }
 
-          // Hover text shows the email, useful if names are duplicated.
-          option.title = sender.email;
+      function renderTriggerState() {
+        const element = document.getElementById("triggerState");
+        const state = context.triggerState || { status: "unknown" };
 
-          select.appendChild(option);
-        });
+        if (state.status === "ready") {
+          element.textContent = "Scheduled sending is ready for your account.";
+        } else if (state.status === "duplicate" || state.status === "invalid") {
+          element.textContent = "Scheduling is blocked: the existing trigger must be resolved.";
+        } else {
+          element.textContent = "A five-minute trigger will be verified when you schedule.";
+        }
       }
 
       function populateRecipientSelect() {
@@ -418,7 +529,7 @@
         const fields = context.recipientFields || [];
         select.innerHTML = "";
 
-        if (!fields.length && !(context.senders || []).length) {
+        if (!fields.length && !context.authenticatedEmail) {
           const option = document.createElement("option");
           option.value = "";
           option.textContent = "No email fields found";
@@ -448,11 +559,9 @@
       function renderRecipientChips(containerId, type) {
         const container = document.getElementById(containerId);
         const fields = context.recipientFields || [];
-        const senderOptions = context.senderOptions || [];
-
         container.innerHTML = "";
 
-        if (!fields.length && !senderOptions.length) {
+        if (!fields.length && !context.authenticatedEmail) {
           const empty = document.createElement("p");
           empty.className = "empty-state";
           empty.textContent = "No recipient fields or senders found.";
@@ -476,13 +585,13 @@
           container.appendChild(chip);
         });
 
-        senderOptions.forEach(function(sender) {
+        if (context.authenticatedEmail) {
           const chip = document.createElement("button");
           chip.type = "button";
           chip.className = "recipient-chip";
-          chip.textContent = sender.name;
-          chip.title = sender.email;
-          chip.dataset.value = sender.email;
+          chip.textContent = "Sender";
+          chip.title = context.authenticatedEmail;
+          chip.dataset.value = context.authenticatedEmail;
           chip.dataset.valueType = "email";
           chip.dataset.type = type;
           chip.onclick = function() {
@@ -491,7 +600,7 @@
           };
 
           container.appendChild(chip);
-        });
+        }
       }
 
       function toggleRecipientPanel(type) {
@@ -647,13 +756,105 @@
           getFriendlyTimeZoneLabel(new Date(), timeZone) + ".";
       }
 
+      function saveInlineSenderProfile() {
+        const button = document.getElementById("saveSenderButton");
+        const errorElement = document.getElementById("senderProfileError");
+        const name = document.getElementById("senderProfileName").value.trim();
+
+        if (!name) {
+          errorElement.textContent = "Sender name is required.";
+          errorElement.classList.remove("hidden");
+          document.getElementById("senderProfileName").focus();
+          return;
+        }
+
+        errorElement.classList.add("hidden");
+        button.disabled = true;
+        button.textContent = "Saving…";
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            context.senderState = result.senderState;
+            renderSenderState();
+            button.disabled = false;
+            button.textContent = "Save profile";
+            updateSubmitButton();
+          })
+          .withFailureHandler(function(error) {
+            errorElement.textContent = error && error.message
+              ? error.message
+              : "Sender profile could not be saved.";
+            errorElement.classList.remove("hidden");
+            button.disabled = false;
+            button.textContent = "Save profile";
+          })
+          .saveSenderProfile({
+            name: name,
+            email: context.authenticatedEmail,
+            signature: document.getElementById("senderProfileSignature").value
+          });
+      }
+
+      function getActionButtonText(action, count, inProgress) {
+        const numericCount = Number(count || 0);
+        const noun = numericCount === 1 ? "Email" : "Emails";
+        const verb = action === "schedule"
+          ? (inProgress ? "Scheduling" : "Schedule")
+          : (inProgress ? "Sending" : "Send");
+        return verb + " " + numericCount + " " + noun + (inProgress ? "…" : "");
+      }
+
+      function canSubmit() {
+        const senderReady = context.senderState && context.senderState.status === "ready";
+        const blockedTrigger = context.actionMode === "schedule" &&
+          context.triggerState &&
+          (context.triggerState.status === "duplicate" || context.triggerState.status === "invalid");
+        return !isSubmitting && !context.blockingError && senderReady &&
+          !blockedTrigger && selectedRowCount > 0;
+      }
+
+      function updateSubmitButton() {
+        const button = document.getElementById("submitButton");
+        button.disabled = !canSubmit();
+        if (!isSubmitting) {
+          setSubmitButtonState(
+            "",
+            getActionButtonText(context.actionMode, selectedRowCount, false)
+          );
+        }
+      }
+
+      function showCompletionMessage(result) {
+        const element = document.getElementById("completionMessage");
+        const sent = Number(result.sent || 0);
+        const scheduled = Number(result.scheduled || 0);
+        const failed = Number(result.failed || 0);
+        const successful = sent + scheduled;
+        const actionWord = context.actionMode === "schedule" ? "scheduled" : "sent";
+
+        element.classList.remove("hidden", "error", "success");
+        if (failed) {
+          element.classList.add("error");
+          element.textContent = successful + " " + actionWord + " · " + failed + " failed";
+          const errors = (result.errors || []).map(item =>
+            "Row " + item.row + ": " + item.error
+          );
+          if (errors.length) element.textContent += "\n" + errors.join("\n");
+        } else {
+          element.classList.add("success");
+          element.textContent = successful + " " +
+            (successful === 1 ? "email " : "emails ") + actionWord;
+        }
+      }
+
       function submitForm() {
+        if (isSubmitting) return;
+
         const submitButton = document.getElementById("submitButton");
         const cancelButton = document.getElementById("cancelButton");
 
         const action = context.actionMode;
         const template = document.getElementById("template").value;
-        const sender = document.getElementById("sender").value;
         const toField = parseRecipientSelectValue(document.getElementById("toField").value);
         const ccFields = getSelectedRecipientItems("cc");
         const bccFields = getSelectedRecipientItems("bcc");
@@ -666,9 +867,10 @@
           return;
         }
 
-        if (!sender) {
-          setSubmitButtonState("failed", "Failed");
-          resetSubmitButtonAfterDelay();
+        if (!context.senderState || context.senderState.status !== "ready") {
+          const senderError = document.getElementById("senderBlockingError");
+          senderError.textContent = "Set up a valid sender profile before continuing.";
+          senderError.classList.remove("hidden");
           return;
         }
 
@@ -695,19 +897,19 @@
           }
         }
 
+        isSubmitting = true;
         submitButton.disabled = true;
         cancelButton.disabled = true;
 
         setFormDisabled(true);
         setSubmitButtonState(
           "working",
-          action === "schedule" ? "Scheduling..." : "Sending..."
+          getActionButtonText(action, selectedRowCount, true)
         );
 
         const formData = {
           action: action,
           template: template,
-          sender: sender,
           toField: toField,
           ccFields: ccFields,
           bccFields: bccFields,
@@ -722,14 +924,17 @@
             const sent = result && result.sent ? Number(result.sent) : 0;
             const scheduled = result && result.scheduled ? Number(result.scheduled) : 0;
             const locked = result && result.locked;
+            const successful = sent + scheduled;
+
+            isSubmitting = false;
+            selectedRowCount = Math.max(selectedRowCount - successful, 0);
+            document.getElementById("selectedRowCount").textContent = selectedRowCount;
+            showCompletionMessage(result || {});
 
             if (locked || failed > 0 || (sent + scheduled === 0)) {
-              setSubmitButtonState("failed", "Error");
-
-              setTimeout(function() {
-                google.script.host.close();
-              }, 500);
-
+              cancelButton.disabled = false;
+              setFormDisabled(false);
+              updateSubmitButton();
               return;
             }
 
@@ -739,14 +944,19 @@
 
             setTimeout(function() {
               google.script.host.close();
-            }, 500);
+            }, 700);
           })
-          .withFailureHandler(function() {
-            setSubmitButtonState("failed", "Error");
-
-            setTimeout(function() {
-              google.script.host.close();
-            }, 500);
+          .withFailureHandler(function(error) {
+            isSubmitting = false;
+            const element = document.getElementById("completionMessage");
+            element.textContent = error && error.message
+              ? error.message
+              : "The request could not be completed.";
+            element.classList.remove("hidden", "success");
+            element.classList.add("error");
+            cancelButton.disabled = false;
+            setFormDisabled(false);
+            updateSubmitButton();
           })
           .queueSendFormJob(formData);
       }
@@ -769,13 +979,12 @@
 
       function resetSubmitButtonAfterDelay() {
         setTimeout(function() {
-          setSubmitButtonState("", "OK");
+          updateSubmitButton();
         }, 1200);
       }
 
       function setFormDisabled(disabled) {
         document.getElementById("template").disabled = disabled;
-        document.getElementById("sender").disabled = disabled;
         document.getElementById("toField").disabled = disabled;
 
         const scheduleDate = document.getElementById("scheduleDate");

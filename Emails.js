@@ -11,70 +11,90 @@ function getSendFormOpenContext_(actionMode) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const trackerSheet = getTrackerSheet_();
   const templateSheet = ss.getSheetByName("Templates");
-  const sendersSheet = ss.getSheetByName("Senders");
 
   if (!trackerSheet) throw new Error("Missing Tracker sheet.");
   if (!templateSheet) throw new Error("Missing Templates sheet.");
 
   const headers = getHeaders_(trackerSheet);
   const selectedRows = getSelectedRows_(trackerSheet, headers);
-  const currentUser = Session.getActiveUser().getEmail();
-
   const templates = getTemplateKeys_(templateSheet);
+  let authenticatedEmail = "";
 
-  let senders = [];
-
-  if (sendersSheet) {
-    senders = getSenderEmails_(sendersSheet);
+  try {
+    authenticatedEmail = getAuthenticatedUserEmail_();
+  } catch (err) {
+    return {
+      actionMode: actionMode,
+      selectedRowCount: selectedRows.length,
+      authenticatedEmail: "",
+      senderState: { status: "blocked", record: null, duplicateCount: 0 },
+      triggerState: { status: "unknown", count: 0 },
+      templates: templates,
+      recipientFields: [],
+      blockingError: err.message
+    };
   }
 
-  if (senders.indexOf(currentUser) === -1) {
-    senders = [currentUser].concat(senders);
-  }
+  let senderState;
 
-  const senderOptions = getSenderOptionsForSendForm_(senders);
+  try {
+    senderState = getSenderStateForEmail_(ss, authenticatedEmail);
+  } catch (err) {
+    return {
+      actionMode: actionMode,
+      selectedRowCount: selectedRows.length,
+      authenticatedEmail: authenticatedEmail,
+      senderState: { status: "blocked", record: null, duplicateCount: 0 },
+      triggerState: { status: "unknown", count: 0 },
+      templates: templates,
+      recipientFields: [],
+      blockingError: err.message || String(err)
+    };
+  }
+  let triggerState;
+
+  try {
+    triggerState = getCurrentUserScheduledTriggerState_();
+  } catch (err) {
+    triggerState = {
+      status: "unknown",
+      count: 0,
+      message: "Scheduled-trigger authorization will be checked when you schedule."
+    };
+  }
 
   return {
     actionMode: actionMode,
     selectedRowCount: selectedRows.length,
-    currentUser: currentUser,
+    authenticatedEmail: authenticatedEmail,
+    senderState: toSenderBootstrapState_(senderState),
+    triggerState: triggerState,
     templates: templates,
-    senders: senders,
-    senderOptions: senderOptions,
-    recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates)
+    recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates),
+    blockingError: ""
   };
 }
 
-function getSenderOptionsForSendForm_(senderEmails) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sendersSheet = ss.getSheetByName("Senders");
-  const senderNameMap = {};
+function toSenderBootstrapState_(state, includeSignatureHtml) {
+  const output = {
+    status: state.status,
+    email: state.email || "",
+    duplicateCount: state.duplicateCount || 0,
+    record: null
+  };
 
-  if (sendersSheet && sendersSheet.getLastRow() >= 2) {
-    const values = sendersSheet
-      .getRange(2, 1, sendersSheet.getLastRow() - 1, 2)
-      .getValues();
-
-    values.forEach(row => {
-      const name = String(row[0] || "").trim();
-      const email = String(row[1] || "").trim();
-
-      if (email) {
-        senderNameMap[normalize_(email)] = name || email;
-      }
-    });
+  if (state.record) {
+    output.record = {
+      name: state.record.name || "",
+      email: state.record.email || "",
+      signature: state.record.signatureText || ""
+    };
+    if (includeSignatureHtml) {
+      output.record.signatureHtml = getSenderSignatureEditorHtml_(state.record);
+    }
   }
 
-  return (senderEmails || [])
-    .map(email => {
-      const cleanEmail = String(email || "").trim();
-
-      return {
-        name: senderNameMap[normalize_(cleanEmail)] || cleanEmail,
-        email: cleanEmail
-      };
-    })
-    .filter(sender => sender.email);
+  return output;
 }
 
 function refreshFormCache() {
@@ -108,21 +128,13 @@ function getCachedFormOptions_() {
 function buildFormOptionsCache_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const templateSheet = ss.getSheetByName("Templates");
-  const sendersSheet = ss.getSheetByName("Senders");
 
   if (!templateSheet) throw new Error("Missing Templates sheet.");
 
   const templates = getTemplateKeys_(templateSheet);
 
-  let senders = [];
-
-  if (sendersSheet) {
-    senders = getSenderEmails_(sendersSheet);
-  }
-
   return {
     templates: templates,
-    senders: senders,
     refreshedAt: new Date().toISOString()
   };
 }
@@ -483,6 +495,50 @@ function dedupeEmails_(emails, seen) {
 // Send form handoff
 // =============================================================================
 
+function requireAuthenticatedSenderProfile_(ss, submittedSender) {
+  const authenticatedEmail = getAuthenticatedUserEmail_();
+  const claimedEmail = String(submittedSender || "").trim();
+
+  if (claimedEmail && normalize_(claimedEmail) !== normalize_(authenticatedEmail)) {
+    throw new Error("Sender identity must match your authenticated Google account.");
+  }
+
+  const senderState = getSenderStateForEmail_(ss, authenticatedEmail);
+  if (senderState.status === "duplicate") {
+    throw new Error(
+      "Duplicate sender profiles exist for " + authenticatedEmail +
+      ". Remove the duplicate rows before sending."
+    );
+  }
+  if (senderState.status !== "ready") {
+    throw new Error("Set up your sender profile before sending.");
+  }
+
+  return senderState.record;
+}
+
+function preflightScheduledRows_(ss, sheet, rows, headers, templateKey, sender, recipientConfig) {
+  const templateSheet = ss.getSheetByName("Templates");
+  if (!templateSheet) throw new Error("Missing Templates sheet.");
+
+  const template = getTemplateByKey_(templateSheet, templateKey);
+  const validRows = [];
+  const failures = [];
+
+  rows.forEach(row => {
+    try {
+      const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
+      if (!recipients.to) throw new Error("Missing recipient email.");
+      buildEmailPayload_(ss, sheet, row, headers, template, sender);
+      validRows.push(row);
+    } catch (err) {
+      failures.push({ row: row, error: err.message || String(err) });
+    }
+  });
+
+  return { validRows: validRows, failures: failures };
+}
+
 function queueSendFormJob(formData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getTrackerSheet_();
@@ -498,7 +554,6 @@ function queueSendFormJob(formData) {
 
   const action = normalize_(formData.action);
   const templateKey = String(formData.template || "").trim();
-  const sender = String(formData.sender || "").trim() || Session.getActiveUser().getEmail();
   const toField = formData.toField || { value: "Email", valueType: "field" };
   const ccFields = Array.isArray(formData.ccFields) ? formData.ccFields : [];
   const bccFields = Array.isArray(formData.bccFields) ? formData.bccFields : [];
@@ -507,7 +562,6 @@ function queueSendFormJob(formData) {
   const scheduledDisplayText = String(formData.scheduledDisplayText || "").trim();
 
   if (!templateKey) throw new Error("Template is required.");
-  if (!sender) throw new Error("Sender is required.");
   if (!toField) throw new Error("Recipient field is required.");
 
   if (action !== "send_now" && action !== "schedule") {
@@ -520,16 +574,60 @@ function queueSendFormJob(formData) {
     if (!scheduledDisplayText) throw new Error("Scheduled display time is required.");
   }
 
+  const senderProfile = requireAuthenticatedSenderProfile_(ss, formData.sender);
+  const sender = senderProfile.email;
+  const recipientConfig = {
+    sender: sender,
+    toField: toField,
+    ccFields: ccFields,
+    bccFields: bccFields
+  };
+  let rowsToProcess = selectedRows.slice();
+  let preflightFailures = [];
+
+  if (action === "schedule") {
+    const preflight = preflightScheduledRows_(
+      ss,
+      sheet,
+      selectedRows,
+      headers,
+      templateKey,
+      sender,
+      recipientConfig
+    );
+    rowsToProcess = preflight.validRows;
+    preflightFailures = preflight.failures;
+
+    if (!rowsToProcess.length) {
+      return {
+        title: "Scheduling failed",
+        action: action,
+        attempted: selectedRows.length,
+        successful: 0,
+        sent: 0,
+        scheduled: 0,
+        failed: preflightFailures.length,
+        successfulRows: [],
+        failedRows: preflightFailures.map(item => item.row),
+        errors: preflightFailures,
+        locked: false,
+        success: false,
+        message: "No emails were scheduled. Fix the selected rows and try again."
+      };
+    }
+
+    // This is the first operation allowed to create a trigger. No queue or
+    // tracker writes have occurred before readiness is verified.
+    ensureCurrentUserScheduledTrigger_();
+  }
+
   ensureTrackerColumnForTemplate_(templateKey);
   headers = getHeaders_(sheet);
-
-  const progressText = action === "schedule" ? "Scheduling..." : "Sending...";
-  setTemplateProgressForRows_(sheet, selectedRows, headers, templateKey, progressText);
 
   const job = {
     jobId: makeJobId_(),
     createdAt: new Date().toISOString(),
-    createdBy: Session.getActiveUser().getEmail(),
+    createdBy: sender,
     action: action,
     template: templateKey,
     sender: sender,
@@ -539,7 +637,9 @@ function queueSendFormJob(formData) {
     scheduledForIso: scheduledForIso,
     scheduledTimeZone: scheduledTimeZone,
     scheduledDisplayText: scheduledDisplayText,
-    rows: selectedRows
+    rows: rowsToProcess,
+    attemptedRows: selectedRows,
+    preflightFailures: preflightFailures
   };
 
   saveQueuedJob_(job);
@@ -547,9 +647,14 @@ function queueSendFormJob(formData) {
   // Current modeless flow: process immediately after handoff.
   // Backup menu/trigger can still process orphaned jobs.
   const result = processQueuedJobs() || {
+    attempted: selectedRows.length,
+    successful: 0,
     sent: 0,
     scheduled: 0,
     failed: 0,
+    successfulRows: [],
+    failedRows: [],
+    errors: [],
     skipped: 0,
     locked: false
   };
@@ -560,10 +665,14 @@ function queueSendFormJob(formData) {
   return {
     title: failedCount ? "Request completed with errors" : "Request completed",
     action: action,
-    selected: selectedRows.length,
+    attempted: result.attempted || selectedRows.length,
+    successful: successCount,
     sent: result.sent || 0,
     scheduled: result.scheduled || 0,
     failed: failedCount,
+    successfulRows: result.successfulRows || [],
+    failedRows: result.failedRows || [],
+    errors: result.errors || [],
     skipped: result.skipped || 0,
     locked: result.locked || false,
     success: failedCount === 0 && successCount > 0,
@@ -625,9 +734,14 @@ function processQueuedJobs() {
   const lock = LockService.getDocumentLock();
 
   const summary = {
+    attempted: 0,
+    successful: 0,
     sent: 0,
     scheduled: 0,
     failed: 0,
+    successfulRows: [],
+    failedRows: [],
+    errors: [],
     skipped: 0,
     locked: false
   };
@@ -652,9 +766,14 @@ function processQueuedJobs() {
       try {
         const result = processOneQueuedJob_(job) || {};
 
+        summary.attempted += result.attempted || 0;
+        summary.successful += result.successful || 0;
         summary.sent += result.sent || 0;
         summary.scheduled += result.scheduled || 0;
         summary.failed += result.failed || 0;
+        summary.successfulRows = summary.successfulRows.concat(result.successfulRows || []);
+        summary.failedRows = summary.failedRows.concat(result.failedRows || []);
+        summary.errors = summary.errors.concat(result.errors || []);
         summary.skipped += result.skipped || 0;
       } catch (err) {
         Logger.log("JOB ERROR " + job.jobId + ": " + err.message);
@@ -690,25 +809,52 @@ function processOneQueuedJob_(job) {
 
   let sentCount = 0;
   let scheduledCount = 0;
-  let failedCount = 0;
+  const preflightFailures = Array.isArray(job.preflightFailures)
+    ? job.preflightFailures.slice()
+    : [];
+  let failedCount = preflightFailures.length;
   let skippedCount = 0;
+  const successfulRows = [];
+  const failedRows = preflightFailures.map(item => item.row);
+  const errors = preflightFailures.slice();
+  const attemptedRows = Array.isArray(job.attemptedRows) ? job.attemptedRows : rows;
 
   if (job.action === "send_now") {
     rows.forEach(row => {
-      const result = sendOneRowNow_(
-        ss,
-        sheet,
-        row,
-        headers,
-        job.template,
-        job.sender,
-        recipientConfig
-      );
+      let result;
+      try {
+        result = sendOneRowNow_(
+          ss,
+          sheet,
+          row,
+          headers,
+          job.template,
+          job.sender,
+          recipientConfig
+        );
+      } catch (err) {
+        result = { status: "failed", row: row, error: err.message || String(err) };
+      }
 
-      result === "sent" ? sentCount++ : failedCount++;
+      if (result.status === "sent") {
+        sentCount++;
+        successfulRows.push(row);
+        try {
+          clearSelectedRow_(sheet, headers, row);
+        } catch (checkboxErr) {
+          Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
+        }
+      } else {
+        failedCount++;
+        failedRows.push(row);
+        errors.push({ row: row, error: result.error || "Email failed." });
+      }
     });
-
-    clearSelectedRows_(sheet, headers, rows);
+    try {
+      SpreadsheetApp.flush();
+    } catch (flushErr) {
+      Logger.log("SEND CHECKBOX FLUSH ERROR: " + flushErr.message);
+    }
 
     ss.toast(
       "Send complete. Sent: " + sentCount + ". Failed: " + failedCount + ".",
@@ -717,9 +863,14 @@ function processOneQueuedJob_(job) {
     );
 
     return {
+      attempted: attemptedRows.length,
+      successful: sentCount,
       sent: sentCount,
       scheduled: 0,
       failed: failedCount,
+      successfulRows: successfulRows,
+      failedRows: failedRows,
+      errors: errors,
       skipped: skippedCount
     };
   }
@@ -730,23 +881,43 @@ function processOneQueuedJob_(job) {
     rows.forEach(row => {
       headers = getHeaders_(sheet);
 
-      const result = scheduleOneRow_(
-        ss,
-        sheet,
-        row,
-        headers,
-        job.template,
-        job.sender,
-        scheduledDate,
-        job.scheduledTimeZone,
-        job.scheduledDisplayText,
-        recipientConfig
-      );
+      let result;
+      try {
+        result = scheduleOneRow_(
+          ss,
+          sheet,
+          row,
+          headers,
+          job.template,
+          job.sender,
+          scheduledDate,
+          job.scheduledTimeZone,
+          job.scheduledDisplayText,
+          recipientConfig
+        );
+      } catch (err) {
+        result = { status: "failed", row: row, error: err.message || String(err) };
+      }
 
-      result === "scheduled" ? scheduledCount++ : failedCount++;
+      if (result.status === "scheduled") {
+        scheduledCount++;
+        successfulRows.push(row);
+        try {
+          clearSelectedRow_(sheet, headers, row);
+        } catch (checkboxErr) {
+          Logger.log("CHECKBOX CLEAR ERROR row " + row + ": " + checkboxErr.message);
+        }
+      } else {
+        failedCount++;
+        failedRows.push(row);
+        errors.push({ row: row, error: result.error || "Scheduling failed." });
+      }
     });
-
-    clearSelectedRows_(sheet, headers, rows);
+    try {
+      SpreadsheetApp.flush();
+    } catch (flushErr) {
+      Logger.log("SCHEDULE CHECKBOX FLUSH ERROR: " + flushErr.message);
+    }
 
     ss.toast(
       "Scheduling complete. Scheduled: " + scheduledCount + ". Failed: " + failedCount + ".",
@@ -755,9 +926,14 @@ function processOneQueuedJob_(job) {
     );
 
     return {
+      attempted: attemptedRows.length,
+      successful: scheduledCount,
       sent: 0,
       scheduled: scheduledCount,
       failed: failedCount,
+      successfulRows: successfulRows,
+      failedRows: failedRows,
+      errors: errors,
       skipped: skippedCount
     };
   }
@@ -765,32 +941,104 @@ function processOneQueuedJob_(job) {
   throw new Error("Unknown queued action: " + job.action);
 }
 
-function setupScheduledEmailTrigger() {
-  const functionName = "sendScheduledEmails";
-
-  const alreadyExists = ScriptApp.getProjectTriggers().some(trigger =>
-    trigger.getHandlerFunction() === functionName
+function getCurrentUserScheduledTriggerState_(runtime) {
+  const options = runtime || {};
+  const scriptApp = options.scriptApp || ScriptApp;
+  const triggers = scriptApp.getProjectTriggers();
+  const matches = triggers.filter(trigger =>
+    trigger.getHandlerFunction() === "sendScheduledEmails"
   );
 
-  if (alreadyExists) {
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      "Scheduled email processor trigger is already set up.",
-      "SendMeBot",
-      5
-    );
-    return;
+  if (matches.length > 1) {
+    return {
+      status: "duplicate",
+      count: matches.length,
+      message: "Multiple scheduled-email triggers are installed for your account."
+    };
   }
 
-  ScriptApp.newTrigger(functionName)
-    .timeBased()
-    .everyMinutes(5)
-    .create();
+  if (!matches.length) {
+    return {
+      status: "missing",
+      count: 0,
+      message: "A five-minute scheduled-email trigger will be created when you schedule."
+    };
+  }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    "Scheduled emails will be checked every 5 minutes.",
-    "SendMeBot",
-    5
-  );
+  // Apps Script exposes handler and event type, but not a trigger's interval.
+  // One clock trigger with this exact handler is the strongest runtime check;
+  // triggers created here always use the approved five-minute cadence.
+  const clockEvent = scriptApp.EventType && scriptApp.EventType.CLOCK;
+  if (clockEvent && matches[0].getEventType() !== clockEvent) {
+    return {
+      status: "invalid",
+      count: 1,
+      message: "The existing sendScheduledEmails trigger is not time-driven."
+    };
+  }
+
+  return {
+    status: "ready",
+    count: 1,
+    message: "Scheduled-email processing is ready for your account."
+  };
+}
+
+function ensureCurrentUserScheduledTrigger_(runtime) {
+  const options = runtime || {};
+  const scriptApp = options.scriptApp || ScriptApp;
+  const lock = options.lock || LockService.getUserLock();
+  lock.waitLock(30000);
+
+  try {
+    const initialState = getCurrentUserScheduledTriggerState_({ scriptApp: scriptApp });
+    if (initialState.status === "ready") return initialState;
+
+    if (initialState.status === "duplicate") {
+      throw new Error(
+        "Multiple sendScheduledEmails triggers exist for your account. " +
+        "Open Apps Script → Triggers and remove the duplicate before scheduling."
+      );
+    }
+
+    if (initialState.status === "invalid") {
+      throw new Error(
+        "Your sendScheduledEmails trigger is not a valid time-driven trigger. " +
+        "Open Apps Script → Triggers and correct it before scheduling."
+      );
+    }
+
+    try {
+      scriptApp.newTrigger("sendScheduledEmails")
+        .timeBased()
+        .everyMinutes(5)
+        .create();
+    } catch (err) {
+      throw new Error(
+        "Scheduled sending could not be authorized or enabled. " +
+        "Authorize SendMeBot and try again. If prompted outside the dialog, " +
+        "open Apps Script and run setupScheduledEmailTrigger once. Details: " +
+        (err.message || err)
+      );
+    }
+
+    const verifiedState = getCurrentUserScheduledTriggerState_({ scriptApp: scriptApp });
+    if (verifiedState.status !== "ready") {
+      throw new Error(
+        "Scheduled-trigger creation could not be verified. No emails were scheduled."
+      );
+    }
+
+    return verifiedState;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function setupScheduledEmailTrigger() {
+  const state = ensureCurrentUserScheduledTrigger_();
+  SpreadsheetApp.getActiveSpreadsheet().toast(state.message, "SendMeBot", 5);
+  return state;
 }
 
 function setupJobProcessorTrigger() {
@@ -826,7 +1074,6 @@ function setupJobProcessorTrigger() {
 // =============================================================================
 
 function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientConfig) {
-  const currentUser = Session.getActiveUser().getEmail();
   const statusCol = headers["status"];
   const templateSheet = ss.getSheetByName("Templates");
 
@@ -841,6 +1088,8 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
   const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
 
   try {
+    const templateStatusCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
+    sheet.getRange(row, templateStatusCol).setValue("Sending...");
     setStatus_(sheet, row, statusCol, "Sending...");
 
     recipients = resolveRecipientsForRow_(
@@ -854,12 +1103,14 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
 
     if (!email) throw new Error("Missing recipient email.");
 
-    if (normalize_(currentUser) !== normalize_(sender)) {
-      throw new Error("Failed: Sender does not match the active user. Ask Nat for help.");
-    }
-
     const template = getTemplateByKey_(templateSheet, templateKey);
     const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
+
+    // Revalidate the execution authority immediately before MailApp.
+    const effectiveUser = getAuthenticatedUserEmail_();
+    if (normalize_(effectiveUser) !== normalize_(sender)) {
+      throw new Error("Sender does not match the authenticated Google account.");
+    }
 
     MailApp.sendEmail({
       to: recipients.to,
@@ -891,29 +1142,33 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
       attachments: payload.attachmentNames || ""
     });
 
-    return "sent";
+    return { status: "sent", row: row, error: "" };
 
   } catch (err) {
-    stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
-    setStatus_(sheet, row, statusCol, "Failed");
+    try {
+      stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
+      setStatus_(sheet, row, statusCol, "Failed");
 
-    logSentEmail_(ss, {
-      name,
-      email,
-      cc: recipients.cc,
-      bcc: recipients.bcc,
-      template: templateKey,
-      sender,
-      subject: "",
-      status: "Failed",
-      message: err.message || "Email failed.",
-      sourceRow: row,
-      body: "",
-      attachments: ""
-    });
+      logSentEmail_(ss, {
+        name,
+        email,
+        cc: recipients.cc,
+        bcc: recipients.bcc,
+        template: templateKey,
+        sender,
+        subject: "",
+        status: "Failed",
+        message: err.message || "Email failed.",
+        sourceRow: row,
+        body: "",
+        attachments: ""
+      });
+    } catch (failureLogErr) {
+      Logger.log("SEND FAILURE LOG ERROR row " + row + ": " + failureLogErr.message);
+    }
 
     Logger.log("SEND ERROR row " + row + ": " + err.message);
-    return "failed";
+    return { status: "failed", row: row, error: err.message || "Email failed." };
   }
 }
 
@@ -997,15 +1252,20 @@ function scheduleOneRow_(
 ) {
   const statusCol = headers["status"];
   let queueRowWritten = false;
+  let queueRow = 0;
 
   try {
     if (!(scheduledDate instanceof Date) || isNaN(scheduledDate.getTime())) {
       throw new Error("Invalid scheduled datetime.");
     }
 
-    if (normalize_(Session.getActiveUser().getEmail()) !== normalize_(sender)) {
-      throw new Error("Failed: Sender does not match the active user. Ask Nat for help.");
+    if (normalize_(getAuthenticatedUserEmail_()) !== normalize_(sender)) {
+      throw new Error("Sender does not match the authenticated Google account.");
     }
+
+    const statusHeaderCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
+    sheet.getRange(row, statusHeaderCol).setValue("Scheduling...");
+    setStatus_(sheet, row, statusCol, "Scheduling...");
 
     const recipients = resolveRecipientsForRow_(sheet, row, headers, recipientConfig);
     const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
@@ -1016,7 +1276,6 @@ function scheduleOneRow_(
 
     const template = getTemplateByKey_(templateSheet, templateKey);
     const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
-    const statusHeaderCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
     const metadata = getFrozenDeliveryMetadata_(
       ss,
       sheet,
@@ -1030,7 +1289,7 @@ function scheduleOneRow_(
       }
     );
 
-    logSentEmail_(ss, {
+    queueRow = logSentEmail_(ss, {
       timestamp: new Date(),
       status: "Scheduled",
       scheduledFor: new Date(scheduledDate.getTime()),
@@ -1056,21 +1315,31 @@ function scheduleOneRow_(
     );
     sheet.getRange(row, statusHeaderCol).setValue("Scheduled for " + visibleScheduledDate);
     setStatus_(sheet, row, statusCol, "Scheduled");
-    return "scheduled";
+    return { status: "scheduled", row: row, error: "" };
   } catch (err) {
-    if (!queueRowWritten) {
+    if (queueRowWritten) {
+      try {
+        const sentSheet = ss.getSheetByName("Sent");
+        const sentHeaders = getRequiredSentQueueHeaders_(sentSheet);
+        sentSheet.getRange(queueRow, sentHeaders["status"]).setValue("Failed");
+        sentSheet.getRange(queueRow, sentHeaders["processed at"]).setValue(new Date());
+        sentSheet.getRange(queueRow, sentHeaders["message"]).setValue(
+          "Scheduling failed after the queue row was written: " + (err.message || err)
+        );
+      } catch (queueErr) {
+        Logger.log("SCHEDULE QUEUE FINALIZATION ERROR row " + row + ": " + queueErr.message);
+      }
+    }
+
+    try {
       stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
       setStatus_(sheet, row, statusCol, "Failed");
-    } else {
-      Logger.log(
-        "SCHEDULE TRACKER UPDATE ERROR row " + row +
-        ": queue row was written and will still be processed. " + (err.message || err)
-      );
-      return "scheduled";
+    } catch (statusErr) {
+      Logger.log("SCHEDULE STATUS ERROR row " + row + ": " + statusErr.message);
     }
 
     Logger.log("SCHEDULE ERROR row " + row + ": " + (err.message || err));
-    return "failed";
+    return { status: "failed", row: row, error: err.message || "Scheduling failed." };
   }
 }
 
@@ -1209,15 +1478,38 @@ function processScheduledEmails_(options) {
     const headers = getRequiredSentQueueHeaders_(sentSheet);
     const values = sentSheet.getDataRange().getValues();
     const now = runtime.now ? new Date(runtime.now) : new Date();
-    const effectiveUser = Object.prototype.hasOwnProperty.call(runtime, "effectiveUser")
-      ? String(runtime.effectiveUser || "")
-      : Session.getEffectiveUser().getEmail();
+    const getEffectiveUserEmail = runtime.getEffectiveUserEmail || function() {
+      return Object.prototype.hasOwnProperty.call(runtime, "effectiveUser")
+        ? String(runtime.effectiveUser || "")
+        : getAuthenticatedUserEmail_();
+    };
     const sendEmail = runtime.sendEmail || function(message) { MailApp.sendEmail(message); };
+    let effectiveUser = "";
+
+    try {
+      effectiveUser = String(getEffectiveUserEmail() || "").trim();
+    } catch (identityErr) {
+      Logger.log("SCHEDULED SEND SKIPPED: " + (identityErr.message || identityErr));
+      summary.skipped = Math.max(values.length - 1, 0);
+      return summary;
+    }
+
+    if (!effectiveUser) {
+      Logger.log("SCHEDULED SEND SKIPPED: effective trigger owner could not be determined.");
+      summary.skipped = Math.max(values.length - 1, 0);
+      return summary;
+    }
 
     for (let r = 1; r < values.length; r++) {
       const rowValues = values[r].slice();
       const row = r + 1;
       if (rowValues[headers["status"] - 1] !== "Scheduled") continue;
+
+      const sender = String(rowValues[headers["sender"] - 1] || "").trim();
+      if (!sender || normalize_(sender) !== normalize_(effectiveUser)) {
+        summary.skipped++;
+        continue;
+      }
 
       const scheduledFor = rowValues[headers["scheduled for"] - 1];
 
@@ -1267,18 +1559,21 @@ function processScheduledEmails_(options) {
           continue;
         }
 
-        const sender = String(rowValues[headers["sender"] - 1] || "").trim();
         const recipient = String(rowValues[headers["recipient"] - 1] || "").trim();
         if (!recipient) throw new Error("Scheduled row is missing Recipient.");
-        if (!sender) throw new Error("Scheduled row is missing Sender.");
-        if (normalize_(effectiveUser) !== normalize_(sender)) {
-          throw new Error("Trigger owner does not match the scheduled sender.");
-        }
 
         sentSheet.getRange(row, headers["status"]).setValue("Processing");
         SpreadsheetApp.flush();
 
         const blobs = getScheduledBlobs_(metadata, runtime.getFileBlob);
+
+        const revalidatedEffectiveUser = String(getEffectiveUserEmail() || "").trim();
+        if (
+          !revalidatedEffectiveUser ||
+          normalize_(revalidatedEffectiveUser) !== normalize_(sender)
+        ) {
+          throw new Error("Effective trigger owner no longer matches the queued sender.");
+        }
 
         sendEmail({
           to: recipient,
@@ -1384,7 +1679,7 @@ function migrateLegacyScheduledNotesToSentQueue() {
         if (getTemplateStatusColumn_(headers, legacy.template, false) !== statusInfo.col) {
           throw new Error("template does not match the noted status column");
         }
-        if (normalize_(legacy.sender) !== normalize_(Session.getActiveUser().getEmail())) {
+        if (normalize_(legacy.sender) !== normalize_(getAuthenticatedUserEmail_())) {
           throw new Error("scheduled sender does not match the active user");
         }
 

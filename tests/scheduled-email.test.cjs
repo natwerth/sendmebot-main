@@ -196,6 +196,7 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
     MailApp: { sendEmail(message) { environment.sends.push(message); } },
     getHeaders_: headersFor,
     normalize_(value) { return String(value || "").trim().toLowerCase(); },
+    getAuthenticatedUserEmail_() { return environment.effectiveUser; },
     getTrackerSheet_() { return tracker; },
     getTemplateStatusColumn_() { return 2; },
     getTemplateStatusColumns_() { return [{ headerName: "Welcome", col: 2 }]; },
@@ -229,6 +230,7 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
   // Replace helpers that Emails.js defines itself and which are external in Apps Script.
   sandbox.getHeaders_ = headersFor;
   sandbox.normalize_ = value => String(value || "").trim().toLowerCase();
+  sandbox.getAuthenticatedUserEmail_ = () => environment.effectiveUser;
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getTemplateStatusColumn_ = () => 2;
   sandbox.getTemplateStatusColumns_ = () => [{ headerName: "Welcome", col: 2 }];
@@ -310,7 +312,7 @@ test("scheduling writes one complete queue record before tracker scheduled statu
     "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}
   );
 
-  assert.equal(result, "scheduled");
+  assert.equal(result.status, "scheduled");
   assert.equal(environment.queuedLogs.length, 1);
   const row = environment.queuedLogs[0];
   assert.ok(row.timestamp instanceof Date);
@@ -332,7 +334,7 @@ test("tracker never shows scheduled when the Sent write fails", () => {
     "Welcome", "owner@example.com", new Date("2099-07-11T13:03:00.000Z"),
     "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}
   );
-  assert.equal(result, "failed");
+  assert.equal(result.status, "failed");
   assert.equal(environment.tracker.rows[0][1], "Error: Not Sent");
   assert.equal(environment.tracker.writes.some(write => String(write.value).startsWith("Scheduled for ")), false);
   assert.equal(environment.tracker.notesWritten, 0);
@@ -481,6 +483,64 @@ test("Sent and Processing rows cannot send twice", () => {
   assert.equal(environment.sends.length, 0);
 });
 
+test("trigger owner skips another user's queue row without modifying it", () => {
+  const otherRow = makeSentRow(new Date("2026-07-10T16:58:00.000Z"), {
+    Sender: "other@example.com"
+  });
+  const ownRow = makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
+    "Log Note": metadata({ sourceRow: 3 })
+  });
+  const { environment, sandbox } = createServerEnvironment([otherRow, ownRow]);
+  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10"]);
+  environment.tracker.notes.push(["", ""]);
+
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: "owner@example.com",
+    sendEmail: message => environment.sends.push(message)
+  });
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Scheduled");
+  assert.equal(environment.sentSheet.rows[0][headers["processed at"] - 1], "");
+  assert.equal(environment.sentSheet.rows[1][headers.status - 1], "Sent");
+  assert.equal(summary.sent, 1);
+  assert.equal(environment.sends.length, 1);
+});
+
+test("missing effective trigger identity processes nothing", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"))
+  ]);
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: "",
+    sendEmail: message => environment.sends.push(message)
+  });
+  assert.equal(summary.sent, 0);
+  assert.equal(environment.sends.length, 0);
+  assert.equal(environment.sentSheet.rows[0][1], "Scheduled");
+});
+
+test("scheduled sender ownership is revalidated immediately before delivery", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"))
+  ]);
+  let identityReads = 0;
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW,
+    getEffectiveUserEmail() {
+      identityReads++;
+      return identityReads === 1 ? "owner@example.com" : "other@example.com";
+    },
+    sendEmail: message => environment.sends.push(message)
+  });
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(summary.failed, 1);
+  assert.equal(environment.sends.length, 0);
+  assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Failed");
+});
+
 test("trigger event objects cannot bypass future-time validation", () => {
   const { environment, sandbox } = createServerEnvironment([
     makeSentRow(new Date("2099-01-01T00:00:00.000Z"))
@@ -565,10 +625,10 @@ test("legacy migration reports ambiguous notes without clearing them", () => {
 
 test("manual scheduled-trigger setup uses one five-minute handler", () => {
   const setupSource = emailsSource.slice(
-    emailsSource.indexOf("function setupScheduledEmailTrigger"),
+    emailsSource.indexOf("function getCurrentUserScheduledTriggerState_"),
     emailsSource.indexOf("function setupJobProcessorTrigger")
   );
-  assert.match(setupSource, /getHandlerFunction\(\) === functionName/);
+  assert.match(setupSource, /getHandlerFunction\(\) === "sendScheduledEmails"/);
   assert.match(setupSource, /\.everyMinutes\(5\)/);
   assert.doesNotMatch(setupSource, /everyDays|atHour/);
 });

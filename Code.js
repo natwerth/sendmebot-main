@@ -7,7 +7,7 @@ function onOpen() {
     .addItem("New template", "openComposeTemplateForm")
     .addItem("Edit template", "openEditTemplateForm")
     .addSeparator()
-    .addItem("Add sender", "openAddSenderForm")
+    .addItem("Sender profile", "openAddSenderForm")
     .addItem("Add image", "openAddImageForm")
     .addSeparator()
     .addItem("SendMeBot Assistant", "openSendMeBotAssistant")
@@ -43,8 +43,8 @@ function openSendMeBotForm_(actionMode) {
 
   const html = template
     .evaluate()
-    .setWidth(300)
-    .setHeight(actionMode === "schedule" ? 430 : 235);
+    .setWidth(340)
+    .setHeight(actionMode === "schedule" ? 650 : 545);
 
   const title = actionMode === "schedule"
     ? "Schedule selected"
@@ -81,10 +81,26 @@ function openTemplateForm_(mode) {
 function openAddSenderForm() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sendersSheet = ss.getSheetByName("Senders");
+  let authenticatedEmail = "";
+  let senderState = { status: "blocked", record: null, duplicateCount: 0 };
+  let blockingError = "";
+
+  try {
+    authenticatedEmail = getAuthenticatedUserEmail_();
+    senderState = toSenderBootstrapState_(
+      getSenderStateForEmail_(ss, authenticatedEmail),
+      true
+    );
+  } catch (err) {
+    blockingError = err.message || String(err);
+  }
 
   const template = HtmlService.createTemplateFromFile("AddSender");
   template.contextJson = JSON.stringify({
-    imageAssets: sendersSheet ? getImageAssetsForComposer_(sendersSheet) : []
+    imageAssets: sendersSheet ? getImageAssetsForComposer_(sendersSheet) : [],
+    authenticatedEmail: authenticatedEmail,
+    senderState: senderState,
+    blockingError: blockingError
   });
 
   const html = template
@@ -92,7 +108,7 @@ function openAddSenderForm() {
     .setWidth(400)
     .setHeight(435);
 
-  SpreadsheetApp.getUi().showModelessDialog(html, "Add sender");
+  SpreadsheetApp.getUi().showModelessDialog(html, "Sender profile");
 }
 
 

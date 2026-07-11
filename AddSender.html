@@ -387,7 +387,7 @@
 
       <div class="field">
         <label for="senderEmail">Email</label>
-        <input id="senderEmail" type="email" placeholder="nat@natwerth.com">
+        <input id="senderEmail" type="email" readonly aria-readonly="true">
       </div>
 
       <div class="field">
@@ -486,6 +486,30 @@
         setupSignatureEditor();
         populateImageChips();
         setupLinkModalKeyboard();
+
+        document.getElementById("senderEmail").value = context.authenticatedEmail || "";
+
+        if (context.blockingError) {
+          showError(context.blockingError);
+          document.getElementById("saveButton").disabled = true;
+          return;
+        }
+
+        const senderState = context.senderState || { status: "missing" };
+        if (senderState.status === "duplicate") {
+          showError(
+            "Duplicate sender profiles exist for this account. " +
+            "Remove the duplicate rows from the Senders sheet before saving."
+          );
+          document.getElementById("saveButton").disabled = true;
+          return;
+        }
+
+        if (senderState.record) {
+          document.getElementById("senderName").value = senderState.record.name || "";
+          document.getElementById("signatureEditor").innerHTML =
+            senderState.record.signatureHtml || senderState.record.signature || "";
+        }
       }
 
       function setupSignatureEditor() {
