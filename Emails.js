@@ -36,14 +36,17 @@ function getSendFormOpenContext_(actionMode) {
       templates: templates,
       templateTracking: templateTracking,
       recipientFields: [],
+      authorizedSenders: [],
       blockingError: err.message
     };
   }
 
   let senderState;
+  let authorizedSenders;
 
   try {
     senderState = getSenderStateForEmail_(ss, authenticatedEmail);
+    authorizedSenders = getAuthorizedSenderOptions_(ss);
   } catch (err) {
     return {
       actionMode: actionMode,
@@ -54,6 +57,7 @@ function getSendFormOpenContext_(actionMode) {
       templates: templates,
       templateTracking: templateTracking,
       recipientFields: [],
+      authorizedSenders: [],
       blockingError: err.message || String(err)
     };
   }
@@ -78,6 +82,7 @@ function getSendFormOpenContext_(actionMode) {
     templates: templates,
     templateTracking: templateTracking,
     recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates),
+    authorizedSenders: authorizedSenders,
     blockingError: ""
   };
 }
@@ -1428,11 +1433,12 @@ function scheduleOneRow_(
       try {
         const sentSheet = ss.getSheetByName("Sent");
         const sentHeaders = getRequiredSentQueueHeaders_(sentSheet);
+        const queueFailureMessage =
+          "Scheduling failed after the queue row was written: " + (err.message || err);
         sentSheet.getRange(queueRow, sentHeaders["status"]).setValue("Failed");
         sentSheet.getRange(queueRow, sentHeaders["processed at"]).setValue(new Date());
-        sentSheet.getRange(queueRow, sentHeaders["message"]).setValue(
-          "Scheduling failed after the queue row was written: " + (err.message || err)
-        );
+        sentSheet.getRange(queueRow, sentHeaders["message"]).setValue(queueFailureMessage);
+        sentSheet.getRange(queueRow, sentHeaders["log note"]).setValue(queueFailureMessage);
       } catch (queueErr) {
         Logger.log("SCHEDULE QUEUE FINALIZATION ERROR row " + row + ": " + queueErr.message);
       }
@@ -1599,10 +1605,6 @@ function validateLiveRenderingTokens_(template, senderProfile, rowData, imageAss
   validate([template.subject || "", template.body || ""], true);
 }
 
-function withScheduledProcessingAudit_(metadata, updates) {
-  return JSON.stringify(Object.assign({}, metadata, updates || {}));
-}
-
 function processScheduledEmails_(options) {
   const runtime = options || {};
   const lock = runtime.lock || LockService.getScriptLock();
@@ -1669,7 +1671,8 @@ function processScheduledEmails_(options) {
         updateSentQueueRow_(sentSheet, row, rowValues, headers, {
           "Status": "Failed",
           "Processed At": new Date(now.getTime()),
-          "Message": invalidMessage
+          "Message": invalidMessage,
+          "Log Note": invalidMessage
         });
         summary.failed++;
         continue;
@@ -1695,28 +1698,26 @@ function processScheduledEmails_(options) {
         );
 
         if (sourceResolution.state === "orphaned") {
+          const orphanedMessage =
+            "Scheduled email was not sent because " + sourceResolution.reason + ".";
           updateSentQueueRow_(sentSheet, row, rowValues, headers, {
             "Status": "Orphaned",
             "Processed At": new Date(now.getTime()),
-            "Message": "Scheduled email was not sent because " + sourceResolution.reason + ".",
-            "Log Note": withScheduledProcessingAudit_(metadata, {
-              processingError: sourceResolution.reason,
-              processedAt: new Date(now.getTime()).toISOString()
-            })
+            "Message": orphanedMessage,
+            "Log Note": orphanedMessage
           });
           summary.orphaned++;
           continue;
         }
 
         if (sourceResolution.state === "cancelled") {
+          const cancelledMessage =
+            "Scheduled email was cancelled because the tracker status was cleared or changed.";
           updateSentQueueRow_(sentSheet, row, rowValues, headers, {
             "Status": "Cancelled",
             "Processed At": new Date(now.getTime()),
-            "Message": "Scheduled email was cancelled because the tracker status was cleared or changed.",
-            "Log Note": withScheduledProcessingAudit_(metadata, {
-              processingError: sourceResolution.reason,
-              processedAt: new Date(now.getTime()).toISOString()
-            })
+            "Message": cancelledMessage,
+            "Log Note": cancelledMessage
           });
           summary.cancelled++;
           continue;
@@ -1781,19 +1782,16 @@ function processScheduledEmails_(options) {
         });
         delivered = true;
 
+        const successMessage = "Scheduled email sent successfully.";
         updateSentQueueRow_(sentSheet, row, rowValues, headers, {
           "Status": "Sent",
           "Processed At": new Date(now.getTime()),
-          "Message": "Scheduled email sent successfully.",
+          "Message": successMessage,
           "Name": metadata.recordIdValue,
           "Subject": payload.subject,
           "Email Body": payload.plainBody,
           "Attachments": payload.attachmentNames || "",
-          "Log Note": withScheduledProcessingAudit_(metadata, {
-            renderedHtmlBody: payload.htmlBody,
-            attachmentNames: payload.attachmentNames || "",
-            renderedAt: new Date(now.getTime()).toISOString()
-          })
+          "Log Note": successMessage
         });
         try {
           updateScheduledSourceTracker_(
@@ -1815,16 +1813,9 @@ function processScheduledEmails_(options) {
         const failureUpdates = {
           "Status": "Failed",
           "Processed At": new Date(now.getTime()),
-          "Message": failureMessage
+          "Message": failureMessage,
+          "Log Note": failureMessage
         };
-        if (metadata) {
-          failureUpdates["Log Note"] = withScheduledProcessingAudit_(metadata, {
-            processingError: err.message || String(err),
-            renderedHtmlBody: renderedPayload ? renderedPayload.htmlBody : "",
-            attachmentNames: renderedPayload ? renderedPayload.attachmentNames || "" : "",
-            processedAt: new Date(now.getTime()).toISOString()
-          });
-        }
         if (renderedPayload) {
           failureUpdates["Subject"] = renderedPayload.subject;
           failureUpdates["Email Body"] = renderedPayload.plainBody;

@@ -180,6 +180,23 @@ test("authenticated sender state returns only the matching record", () => {
   assert.equal(JSON.stringify(state).includes("other@akamai.com"), false);
 });
 
+test("authorized sender options keep valid rows and safely skip invalid rows", () => {
+  const { sandbox, spreadsheet } = createDataEnvironment([
+    ["Owner Name", "owner@akamai.com", "Owner signature"],
+    ["", "unnamed@example.com", "Unnamed signature"],
+    ["Blank", "", "Blank signature"],
+    ["Malformed", "not-an-email", "Malformed signature"],
+    ["Owner Duplicate", "owner@akamai.com", "Duplicate signature"]
+  ]);
+  const options = JSON.parse(JSON.stringify(sandbox.getAuthorizedSenderOptions_(spreadsheet)));
+  assert.deepEqual(options, [
+    { name: "Owner Name", email: "owner@akamai.com" },
+    { name: "", email: "unnamed@example.com" },
+    { name: "Owner Duplicate", email: "owner@akamai.com" }
+  ]);
+  assert.equal(JSON.stringify(options).includes("signature"), false);
+});
+
 test("missing and duplicate current-user sender states are explicit", () => {
   const missing = createDataEnvironment([
     ["Other", "other@akamai.com", "", "", "Logo", "file1", "320"]
@@ -241,7 +258,7 @@ test("client-submitted alternate sender email is rejected", () => {
   }), /authenticated Google account/);
 });
 
-test("SendForm bootstrap exposes current sender but not another user's row", () => {
+test("SendForm bootstrap exposes recipient-safe authorized sender options", () => {
   const data = createDataEnvironment([
     ["Owner Name", "owner@akamai.com", "Owner signature", "", "Logo", "file1", "320"],
     ["Other", "other@akamai.com", "Other signature", "", "", "", ""]
@@ -275,7 +292,11 @@ test("SendForm bootstrap exposes current sender but not another user's row", () 
   assert.equal(context.selectedRowCount, 4);
   assert.equal(context.templateTracking.Welcome, false);
   assert.equal(context.templateTracking.Existing, true);
-  assert.equal(JSON.stringify(context).includes("other@akamai.com"), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.authorizedSenders)), [
+    { name: "Owner Name", email: "owner@akamai.com" },
+    { name: "Other", email: "other@akamai.com" }
+  ]);
+  assert.equal(JSON.stringify(context).includes("Other signature"), false);
 });
 
 test("existing trigger is reused and missing trigger is created exactly once", () => {
@@ -659,6 +680,107 @@ test("sender authority is revalidated immediately before MailApp", () => {
   );
   assert.equal(result.status, "failed");
   assert.equal(sends.length, 0);
+});
+
+test("Me is the default To recipient and authorized senders render in CC and BCC", () => {
+  const script = formSource.match(/<script>([\s\S]*?)<\/script>/)[1]
+    .replace("const context = <?!= contextJson ?>;", "const context = {};")
+    .replace(/\s*initializeForm\(\);\s*$/, "");
+
+  function createElement(tagName) {
+    const classes = new Set();
+    const element = {
+      tagName: String(tagName || "div").toUpperCase(),
+      children: [],
+      dataset: {},
+      value: "",
+      textContent: "",
+      selected: false,
+      classList: {
+        add(name) { classes.add(name); },
+        remove(name) { classes.delete(name); },
+        toggle(name) { classes.has(name) ? classes.delete(name) : classes.add(name); },
+        contains(name) { return classes.has(name); }
+      },
+      appendChild(child) {
+        const firstChild = this.children.length === 0;
+        this.children.push(child);
+        if (this.tagName === "SELECT" && (firstChild || child.selected)) this.value = child.value;
+        return child;
+      }
+    };
+    Object.defineProperty(element, "innerHTML", {
+      get() { return ""; },
+      set() { element.children.length = 0; element.value = ""; }
+    });
+    return element;
+  }
+
+  const elements = {
+    toField: createElement("select"),
+    ccChips: createElement("div"),
+    bccChips: createElement("div")
+  };
+  const sandbox = {
+    Date, Intl, console, setTimeout() {}, google: {},
+    document: {
+      createElement,
+      getElementById(id) { return elements[id] || createElement("div"); }
+    }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(script, sandbox, { filename: "SendForm.html" });
+  vm.runInContext(
+    'context.authenticatedEmail="owner@akamai.com";' +
+    'context.recipientFields=[{header:"Email",label:"Tracker recipient"}];' +
+    'context.authorizedSenders=[' +
+      '{name:"Owner Name",email:"owner@akamai.com"},' +
+      '{name:"",email:"other@akamai.com"}' +
+    '];',
+    sandbox
+  );
+
+  sandbox.populateRecipientSelect();
+  sandbox.renderRecipientChips("ccChips", "cc");
+  sandbox.renderRecipientChips("bccChips", "bcc");
+
+  assert.deepEqual(elements.toField.children.map(option => option.textContent), [
+    "Me", "Tracker recipient"
+  ]);
+  assert.equal(elements.toField.children[0].selected, true);
+  assert.deepEqual(JSON.parse(elements.toField.value), {
+    value: "__SELECTED_SENDER__", valueType: "selectedSender"
+  });
+
+  [elements.ccChips, elements.bccChips].forEach(container => {
+    assert.deepEqual(container.children.map(chip => chip.textContent), [
+      "Tracker recipient", "Me", "Owner Name", "other@akamai.com"
+    ]);
+    assert.equal(container.children.some(chip => chip.textContent === "Sender"), false);
+    assert.equal(container.children.some(chip => chip.classList.contains("active")), false);
+    assert.equal(container.children[2].dataset.value, "owner@akamai.com");
+    assert.equal(container.children[2].dataset.valueType, "email");
+  });
+});
+
+test("authorized sender items use the existing CC and BCC payload format", () => {
+  const sandbox = loadEmailsSandbox();
+  const sheet = {
+    getRange() {
+      return { getDisplayValue: () => "recipient@example.com" };
+    }
+  };
+  const recipients = sandbox.resolveRecipientsForRow_(sheet, 2, { email: 1 }, {
+    sender: "owner@akamai.com",
+    toField: { value: "Email", valueType: "field" },
+    ccFields: [{ value: "cc-sender@akamai.com", valueType: "email" }],
+    bccFields: [{ value: "bcc-sender@akamai.com", valueType: "email" }]
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(recipients)), {
+    to: "recipient@example.com",
+    cc: "cc-sender@akamai.com",
+    bcc: "bcc-sender@akamai.com"
+  });
 });
 
 test("dynamic action labels and duplicate-submit guard are present", () => {

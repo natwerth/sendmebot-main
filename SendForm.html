@@ -555,6 +555,17 @@
           return;
         }
 
+        if (context.authenticatedEmail) {
+          const meOption = document.createElement("option");
+          meOption.value = JSON.stringify({
+            value: "__SELECTED_SENDER__",
+            valueType: "selectedSender"
+          });
+          meOption.textContent = "Me";
+          meOption.selected = true;
+          select.appendChild(meOption);
+        }
+
         fields.forEach(function(field) {
           const option = document.createElement("option");
           option.value = JSON.stringify({
@@ -564,22 +575,15 @@
           option.textContent = field.label;
           select.appendChild(option);
         });
-
-        const senderOption = document.createElement("option");
-        senderOption.value = JSON.stringify({
-          value: "__SELECTED_SENDER__",
-          valueType: "selectedSender"
-        });
-        senderOption.textContent = "Sender";
-        select.appendChild(senderOption);
       }
 
       function renderRecipientChips(containerId, type) {
         const container = document.getElementById(containerId);
         const fields = context.recipientFields || [];
+        const authorizedSenders = context.authorizedSenders || [];
         container.innerHTML = "";
 
-        if (!fields.length && !context.authenticatedEmail) {
+        if (!fields.length && !context.authenticatedEmail && !authorizedSenders.length) {
           const empty = document.createElement("p");
           empty.className = "empty-state";
           empty.textContent = "No recipient fields or senders found.";
@@ -607,7 +611,7 @@
           const chip = document.createElement("button");
           chip.type = "button";
           chip.className = "recipient-chip";
-          chip.textContent = "Sender";
+          chip.textContent = "Me";
           chip.title = context.authenticatedEmail;
           chip.dataset.value = context.authenticatedEmail;
           chip.dataset.valueType = "email";
@@ -619,6 +623,26 @@
 
           container.appendChild(chip);
         }
+
+        authorizedSenders.forEach(function(sender) {
+          const email = String(sender.email || "").trim();
+          if (!email) return;
+
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "recipient-chip";
+          chip.textContent = String(sender.name || "").trim() || email;
+          chip.title = email;
+          chip.dataset.value = email;
+          chip.dataset.valueType = "email";
+          chip.dataset.type = type;
+          chip.onclick = function() {
+            chip.classList.toggle("active");
+            updateRecipientToggleCounts();
+          };
+
+          container.appendChild(chip);
+        });
       }
 
       function toggleRecipientPanel(type) {

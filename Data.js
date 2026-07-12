@@ -41,6 +41,21 @@ function getSenderTableColumns_(sheet, allowInitialize) {
   return columns;
 }
 
+function getAuthorizedSenderOptions_(ss) {
+  const sheet = ss.getSheetByName("Senders");
+  if (!sheet) return [];
+
+  const columns = getSenderTableColumns_(sheet, false);
+  if (!columns || sheet.getLastRow() < 2) return [];
+
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues()
+    .map(rowValues => ({
+      name: String(rowValues[columns.name - 1] || "").trim(),
+      email: String(rowValues[columns.email - 1] || "").trim()
+    }))
+    .filter(sender => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sender.email));
+}
+
 function getSenderMatches_(sheet, senderEmail) {
   const columns = getSenderTableColumns_(sheet, false);
   if (!columns) return [];

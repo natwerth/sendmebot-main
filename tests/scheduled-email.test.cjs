@@ -435,6 +435,27 @@ test("future Scheduled row is skipped", () => {
   assert.equal(summary.skipped, 1);
   assert.equal(environment.sends.length, 0);
   assert.equal(environment.sentSheet.rows[0][1], "Scheduled");
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(JSON.parse(environment.sentSheet.rows[0][headers["log note"] - 1]).version, 3);
+});
+
+test("invalid Scheduled For finalizes with a plain Log Note", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow("not-a-date")
+  ]);
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
+    sendEmail: message => environment.sends.push(message)
+  });
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(summary.failed, 1);
+  assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Failed");
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    "Scheduled For must be a valid spreadsheet datetime."
+  );
+  assert.equal(environment.sends.length, 0);
 });
 
 test("due row renders current Tracker data and finalizes as Sent", () => {
@@ -451,11 +472,15 @@ test("due row renders current Tracker data and finalizes as Sent", () => {
   assert.equal(summary.sent, 1);
   assert.equal(environment.sends.length, 1);
   assert.equal(environment.sends[0].subject, "Frozen subject");
+  assert.equal(environment.sends[0].htmlBody, "<p>Frozen HTML</p>");
   assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Sent");
   assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
   assert.equal(environment.sentSheet.rows[0][headers.subject - 1], "Frozen subject");
   assert.equal(environment.sentSheet.rows[0][headers["email body"] - 1], "Frozen plain body");
-  assert.match(environment.sentSheet.rows[0][headers["log note"] - 1], /renderedHtmlBody/);
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    "Scheduled email sent successfully."
+  );
   assert.equal(environment.sentSheet.writes.some(write => write.value === "Processing"), true);
   assert.equal(environment.tracker.rows[0][1], "Sent on 7/10");
   assert.equal(environment.tracker.rows[0][0], "Scheduled");
@@ -476,6 +501,10 @@ test("blank tracker status cancels the due queue row without sending", () => {
   assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Cancelled");
   assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
   assert.match(environment.sentSheet.rows[0][headers.message - 1], /cancelled/i);
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    environment.sentSheet.rows[0][headers.message - 1]
+  );
   assert.equal(environment.sends.length, 0);
 });
 
@@ -524,6 +553,10 @@ test("missing source sheet, record, or ID column orphans the due queue row witho
     assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Orphaned");
     assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
     assert.match(environment.sentSheet.rows[0][headers.message - 1], /no longer exists|could not be found/i);
+    assert.equal(
+      environment.sentSheet.rows[0][headers["log note"] - 1],
+      environment.sentSheet.rows[0][headers.message - 1]
+    );
     assert.equal(environment.sends.length, 0);
   });
 });
@@ -553,6 +586,11 @@ test("failed due row is finalized and does not stop a later row", () => {
   assert.equal(summary.sent, 1);
   assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Failed");
   assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    "Scheduled email failed: fake delivery failure"
+  );
+  assert.doesNotMatch(environment.sentSheet.rows[0][headers["log note"] - 1], /<[^>]+>|\{/);
   assert.equal(environment.sentSheet.rows[1][headers.status - 1], "Sent");
 });
 
@@ -683,6 +721,10 @@ test("version-2 scheduled rows fail clearly without sending", () => {
   assert.equal(summary.failed, 1);
   assert.equal(environment.sends.length, 0);
   assert.match(environment.sentSheet.rows[0][headers.message - 1], /version 2.*Reschedule/i);
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    environment.sentSheet.rows[0][headers.message - 1]
+  );
 });
 
 test("record lookup follows a sorted row using case-insensitive ID matching", () => {
@@ -734,6 +776,10 @@ test("missing delivery-time template variable writes detailed Sent and Tracker e
   assert.equal(summary.failed, 1);
   assert.equal(environment.sends.length, 0);
   assert.match(environment.sentSheet.rows[0][headers.message - 1], /Deleted Column/);
+  assert.equal(
+    environment.sentSheet.rows[0][headers["log note"] - 1],
+    environment.sentSheet.rows[0][headers.message - 1]
+  );
   assert.match(environment.tracker.rows[0][1], /^Error: .*Deleted Column/);
 });
 
