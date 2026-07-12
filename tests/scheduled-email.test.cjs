@@ -77,6 +77,14 @@ function createGridSheet(name, headers, rows) {
           if (row === 1) return [target.headers.slice(col - 1, col - 1 + (numCols || 1))];
           return [target.rows[row - 2].slice(col - 1, col - 1 + (numCols || 1))];
         },
+        getDisplayValues() {
+          const values = [];
+          for (let r = 0; r < (numRows || 1); r++) {
+            const source = row + r === 1 ? target.headers : target.rows[row + r - 2];
+            values.push(source.slice(col - 1, col - 1 + (numCols || 1)).map(value => String(value || "")));
+          }
+          return values;
+        },
         getA1Notation() { return "R" + row + "C" + col; },
         setNote() { target.notesWritten++; return this; },
         clearNote() {
@@ -106,17 +114,14 @@ const SENT_HEADERS = [
 
 function metadata(overrides) {
   return JSON.stringify(Object.assign({
-    version: 2,
+    version: 3,
     sourceSheet: "Tracker",
     sourceRow: 2,
     sourceStatusColumn: 2,
+    recordIdHeader: "Student Name",
+    recordIdValue: "Alice Student",
     scheduledTimeZone: "America/Chicago",
-    scheduledDisplayText: "Jul 10, 2026, 11:00 AM CDT",
-    senderName: "Owner",
-    htmlBody: "<p>Frozen HTML</p>",
-    inlineImageFileIds: {},
-    attachmentFileIds: [],
-    attachmentNames: ""
+    scheduledDisplayText: "Jul 10, 2026, 11:00 AM CDT"
   }, overrides || {}));
 }
 
@@ -144,7 +149,11 @@ function makeSentRow(scheduledFor, overrides, headers = SENT_HEADERS) {
 
 function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
   const sentSheet = createGridSheet("Sent", sentHeaders, sentRows);
-  const tracker = createGridSheet("Tracker", ["Status", "Welcome"], [["Scheduled", "Scheduled for 7/10"]]);
+  const tracker = createGridSheet(
+    "Tracker",
+    ["Status", "Welcome", "Student Name"],
+    [["Scheduled", "Scheduled for 7/10", "Alice Student"]]
+  );
   const templateSheet = {};
   const environment = {
     sentSheet,
@@ -196,11 +205,14 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
     MailApp: { sendEmail(message) { environment.sends.push(message); } },
     getHeaders_: headersFor,
     normalize_(value) { return String(value || "").trim().toLowerCase(); },
+    normalizeTemplateKey_(value) { return String(value || "").trim().toLowerCase(); },
     getAuthenticatedUserEmail_() { return environment.effectiveUser; },
     getTrackerSheet_() { return tracker; },
     getTemplateStatusColumn_() { return 2; },
     getTemplateStatusColumns_() { return [{ headerName: "Welcome", col: 2 }]; },
     getTemplateByKey_() { return { attachmentLink: "" }; },
+    getSenderProfile_() { return { name: "Owner", email: "owner@example.com", signatureText: "" }; },
+    getRowData_() { return { "Student Name": "Alice Student" }; },
     resolveRecipientsForRow_() { return { to: "recipient@example.com", cc: "", bcc: "" }; },
     getRecipientNameForRow_() { return "Recipient Name"; },
     buildEmailPayload_() {
@@ -230,11 +242,14 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
   // Replace helpers that Emails.js defines itself and which are external in Apps Script.
   sandbox.getHeaders_ = headersFor;
   sandbox.normalize_ = value => String(value || "").trim().toLowerCase();
+  sandbox.normalizeTemplateKey_ = value => String(value || "").trim().toLowerCase();
   sandbox.getAuthenticatedUserEmail_ = () => environment.effectiveUser;
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getTemplateStatusColumn_ = () => 2;
   sandbox.getTemplateStatusColumns_ = () => [{ headerName: "Welcome", col: 2 }];
   sandbox.getTemplateByKey_ = () => ({ attachmentLink: "" });
+  sandbox.getSenderProfile_ = () => ({ name: "Owner", email: "owner@example.com", signatureText: "" });
+  sandbox.getRowData_ = () => ({ "Student Name": "Alice Student" });
   sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
   sandbox.getRecipientNameForRow_ = () => "Recipient Name";
   sandbox.buildEmailPayload_ = () => ({
@@ -303,13 +318,77 @@ test("past browser-local datetime is rejected", () => {
   );
 });
 
+test("lean scheduling freezes recipients and record identity without rendering", () => {
+  const sheet = createGridSheet(
+    "Tracker",
+    ["Select", "Student Name", "Email", "Status", "Welcome"],
+    [[true, "Alice Student", "alice@example.com", "", "Scheduling..."]]
+  );
+  const sandbox = createServerEnvironment([]).sandbox;
+  sandbox.resolveRecipientsForRow_ = () => ({
+    to: "alice@example.com", cc: "manager@example.com", bcc: "audit@example.com"
+  });
+  sandbox.buildEmailPayload_ = () => { throw new Error("rendering must not run while scheduling"); };
+  const result = sandbox.prepareScheduledRows_(
+    {}, sheet, [2], headersFor(sheet), {}, "Student Name"
+  );
+  assert.deepEqual(Array.from(result.validRows), [2]);
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.preparedRows[2].recordIdValue, "Alice Student");
+  assert.equal(result.preparedRows[2].recipients.cc, "manager@example.com");
+  assert.equal(result.preparedRows[2].recipients.bcc, "audit@example.com");
+  const source = emailsSource.slice(
+    emailsSource.indexOf("function prepareScheduledRows_"),
+    emailsSource.indexOf("function queueSendFormJob")
+  );
+  assert.doesNotMatch(source, /buildEmailPayload_|DriveApp|getTemplateByKey_/);
+});
+
+test("blank and case-insensitive duplicate record IDs fail row validation", () => {
+  const sheet = createGridSheet(
+    "Tracker",
+    ["Select", "Student Name", "Email"],
+    [
+      [true, "Alice Student", "a@example.com"],
+      [true, " alice student ", "b@example.com"],
+      [true, "", "c@example.com"]
+    ]
+  );
+  const sandbox = createServerEnvironment([]).sandbox;
+  sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
+  const result = sandbox.prepareScheduledRows_(
+    {}, sheet, [2, 3, 4], headersFor(sheet), {}, "Student Name"
+  );
+  assert.equal(result.validRows.length, 0);
+  assert.equal(result.failures.length, 3);
+  assert.match(result.failures[0].error, /not unique/);
+  assert.match(result.failures[2].error, /blank/);
+});
+
+test("delivery token validation names missing columns but permits blank existing values", () => {
+  const sandbox = createServerEnvironment([]).sandbox;
+  const sender = { name: "Owner", email: "owner@example.com", signatureText: "" };
+  assert.doesNotThrow(() => sandbox.validateLiveRenderingTokens_(
+    { subject: "Hello {{Start Date}}", body: "{{Sender Signature}}" },
+    sender,
+    { "Start Date": "" },
+    {}
+  ));
+  assert.throws(() => sandbox.validateLiveRenderingTokens_(
+    { subject: "Hello {{Renamed Column}}", body: "" }, sender, {}, {}
+  ), /Renamed Column.*no current Tracker column/i);
+});
+
 test("scheduling writes one complete queue record before tracker scheduled status", () => {
   const { environment, sandbox } = createServerEnvironment([]);
-  environment.tracker.rows[0] = ["", "Scheduling..."];
+  environment.tracker.rows[0] = ["", "Scheduling...", "Alice Student"];
   const result = sandbox.scheduleOneRow_(
     environment.spreadsheet, environment.tracker, 2, headersFor(environment.tracker),
     "Welcome", "owner@example.com", new Date("2099-07-11T13:03:00.000Z"),
-    "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}
+    "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}, {
+      recordIdHeader: "Student Name", recordIdValue: "Alice Student",
+      name: "Alice Student", recipients: { to: "recipient@example.com", cc: "", bcc: "" }
+    }
   );
 
   assert.equal(result.status, "scheduled");
@@ -321,21 +400,27 @@ test("scheduling writes one complete queue record before tracker scheduled statu
   assert.equal(row.processedAt, "");
   ["message", "name", "email", "sender", "template", "subject", "body", "attachments", "logNote"]
     .forEach(key => assert.ok(Object.prototype.hasOwnProperty.call(row, key), key));
+  assert.equal(row.subject, "");
+  assert.equal(row.body, "");
+  assert.equal(JSON.parse(row.logNote).version, 3);
   assert.equal(environment.tracker.rows[0][1], "Scheduled for 7/11");
   assert.equal(environment.tracker.notesWritten, 0);
 });
 
 test("tracker never shows scheduled when the Sent write fails", () => {
   const { environment, sandbox } = createServerEnvironment([]);
-  environment.tracker.rows[0] = ["", "Scheduling..."];
+  environment.tracker.rows[0] = ["", "Scheduling...", "Alice Student"];
   environment.logError = new Error("fake Sent write failure");
   const result = sandbox.scheduleOneRow_(
     environment.spreadsheet, environment.tracker, 2, headersFor(environment.tracker),
     "Welcome", "owner@example.com", new Date("2099-07-11T13:03:00.000Z"),
-    "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}
+    "America/Chicago", "Jul 11, 2099, 8:03 AM CDT", {}, {
+      recordIdHeader: "Student Name", recordIdValue: "Alice Student",
+      name: "Alice Student", recipients: { to: "recipient@example.com", cc: "", bcc: "" }
+    }
   );
   assert.equal(result.status, "failed");
-  assert.equal(environment.tracker.rows[0][1], "Error: Not Sent");
+  assert.match(environment.tracker.rows[0][1], /^Error: fake Sent write failure/);
   assert.equal(environment.tracker.writes.some(write => String(write.value).startsWith("Scheduled for ")), false);
   assert.equal(environment.tracker.notesWritten, 0);
 });
@@ -355,7 +440,7 @@ test("future Scheduled row is skipped", () => {
   assert.equal(environment.sentSheet.rows[0][1], "Scheduled");
 });
 
-test("due row processes from frozen Sent data and finalizes as Sent", () => {
+test("due row renders current Tracker data and finalizes as Sent", () => {
   const { environment, sandbox } = createServerEnvironment([
     makeSentRow(new Date("2026-07-10T16:59:00.000Z"))
   ]);
@@ -371,6 +456,9 @@ test("due row processes from frozen Sent data and finalizes as Sent", () => {
   assert.equal(environment.sends[0].subject, "Frozen subject");
   assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Sent");
   assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
+  assert.equal(environment.sentSheet.rows[0][headers.subject - 1], "Frozen subject");
+  assert.equal(environment.sentSheet.rows[0][headers["email body"] - 1], "Frozen plain body");
+  assert.match(environment.sentSheet.rows[0][headers["log note"] - 1], /renderedHtmlBody/);
   assert.equal(environment.sentSheet.writes.some(write => write.value === "Processing"), true);
   assert.equal(environment.tracker.rows[0][1], "Sent on 7/10");
 });
@@ -397,12 +485,12 @@ test("changed tracker status cancels that row and processing continues", () => {
   const { environment, sandbox } = createServerEnvironment([
     makeSentRow(new Date("2026-07-10T16:58:00.000Z")),
     makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
-      "Log Note": metadata({ sourceRow: 3 })
+      "Log Note": metadata({ sourceRow: 3, recordIdValue: "Bob Student" })
     })
   ]);
   environment.tracker.rows[0][1] = "Sent on 7/9";
-  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10"]);
-  environment.tracker.notes.push(["", ""]);
+  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10", "Bob Student"]);
+  environment.tracker.notes.push(["", "", ""]);
   const summary = sandbox.processScheduledEmails_({
     spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
     lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
@@ -417,11 +505,11 @@ test("changed tracker status cancels that row and processing continues", () => {
   assert.equal(environment.sends.length, 1);
 });
 
-test("missing source sheet, row, or column orphans the due queue row without sending", () => {
+test("missing source sheet, record, or ID column orphans the due queue row without sending", () => {
   [
     { metadata: { sourceSheet: "Deleted Tracker" } },
-    { metadata: { sourceRow: 99 } },
-    { metadata: { sourceStatusColumn: 99 } }
+    { metadata: { recordIdValue: "Deleted Student" } },
+    { metadata: { recordIdHeader: "Deleted ID" } }
   ].forEach(testCase => {
     const { environment, sandbox } = createServerEnvironment([
       makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
@@ -437,7 +525,7 @@ test("missing source sheet, row, or column orphans the due queue row without sen
     assert.equal(summary.orphaned, 1);
     assert.equal(environment.sentSheet.rows[0][headers.status - 1], "Orphaned");
     assert.ok(environment.sentSheet.rows[0][headers["processed at"] - 1] instanceof Date);
-    assert.match(environment.sentSheet.rows[0][headers.message - 1], /no longer exists/i);
+    assert.match(environment.sentSheet.rows[0][headers.message - 1], /no longer exists|could not be found/i);
     assert.equal(environment.sends.length, 0);
   });
 });
@@ -447,11 +535,11 @@ test("failed due row is finalized and does not stop a later row", () => {
     makeSentRow(new Date("2026-07-10T16:58:00.000Z"), { Recipient: "first@example.com" }),
     makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
       Recipient: "second@example.com",
-      "Log Note": metadata({ sourceRow: 3 })
+      "Log Note": metadata({ sourceRow: 3, recordIdValue: "Bob Student" })
     })
   ]);
-  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10"]);
-  environment.tracker.notes.push(["", ""]);
+  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10", "Bob Student"]);
+  environment.tracker.notes.push(["", "", ""]);
   let calls = 0;
   const summary = sandbox.processScheduledEmails_({
     spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
@@ -488,11 +576,11 @@ test("trigger owner skips another user's queue row without modifying it", () => 
     Sender: "other@example.com"
   });
   const ownRow = makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
-    "Log Note": metadata({ sourceRow: 3 })
+    "Log Note": metadata({ sourceRow: 3, recordIdValue: "Bob Student" })
   });
   const { environment, sandbox } = createServerEnvironment([otherRow, ownRow]);
-  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10"]);
-  environment.tracker.notes.push(["", ""]);
+  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10", "Bob Student"]);
+  environment.tracker.notes.push(["", "", ""]);
 
   const summary = sandbox.processScheduledEmails_({
     spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
@@ -583,44 +671,72 @@ test("processor resolves shuffled Sent columns by header name", () => {
   assert.equal(environment.sentSheet.rows[0][shuffled.indexOf("Status")], "Sent");
 });
 
-test("manual legacy migration queues validated notes and only then clears them", () => {
-  const { environment, sandbox } = createServerEnvironment([]);
-  const legacyDate = new Date("2026-07-11T13:03:00.000Z");
-  environment.tracker.rows[0][1] = "Scheduled for 7/11";
-  environment.tracker.notes[0][1] = JSON.stringify({
-    template: "Welcome",
-    sender: "owner@example.com",
-    scheduledDate: legacyDate.toISOString(),
-    recipientConfig: {
-      sender: "owner@example.com",
-      toField: { value: "Email", valueType: "field" },
-      ccFields: [],
-      bccFields: []
-    }
+test("version-2 scheduled rows fail clearly without sending", () => {
+  const legacyMetadata = JSON.stringify({ version: 2, sourceSheet: "Tracker", sourceRow: 2 });
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"), { "Log Note": legacyMetadata })
+  ]);
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
+    sendEmail: message => environment.sends.push(message)
   });
-
-  const report = sandbox.migrateLegacyScheduledNotesToSentQueue();
-  assert.equal(report.migrated, 1);
-  assert.equal(report.invalid, 0);
-  assert.equal(environment.queuedLogs.length, 1);
-  assert.equal(environment.queuedLogs[0].scheduledFor.toISOString(), legacyDate.toISOString());
-  assert.equal(environment.tracker.notes[0][1], "");
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(summary.failed, 1);
   assert.equal(environment.sends.length, 0);
+  assert.match(environment.sentSheet.rows[0][headers.message - 1], /version 2.*Reschedule/i);
 });
 
-test("legacy migration reports ambiguous notes without clearing them", () => {
-  const { environment, sandbox } = createServerEnvironment([]);
-  environment.tracker.rows[0][1] = "Scheduled for 7/12";
-  environment.tracker.notes[0][1] = JSON.stringify({
-    template: "Welcome",
-    sender: "owner@example.com",
-    scheduledDate: "2026-07-11T13:03:00.000Z"
+test("record lookup follows a sorted row using case-insensitive ID matching", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"), {
+      "Log Note": metadata({ sourceRow: 99, recordIdValue: "alice student" })
+    })
+  ]);
+  environment.tracker.rows.unshift(["", "", "Someone Else"]);
+  environment.tracker.notes.unshift(["", "", ""]);
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
+    sendEmail: message => environment.sends.push(message)
   });
-  const report = sandbox.migrateLegacyScheduledNotesToSentQueue();
-  assert.equal(report.migrated, 0);
-  assert.equal(report.invalid, 1);
-  assert.equal(report.details.length, 1);
-  assert.notEqual(environment.tracker.notes[0][1], "");
+  assert.equal(summary.sent, 1);
+  assert.equal(environment.tracker.rows[1][1], "Sent on 7/10");
+});
+
+test("duplicate record IDs fail closed", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"))
+  ]);
+  environment.tracker.rows.push(["Scheduled", "Scheduled for 7/10", "alice student"]);
+  environment.tracker.notes.push(["", "", ""]);
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
+    sendEmail: message => environment.sends.push(message)
+  });
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(summary.failed, 1);
+  assert.equal(environment.sends.length, 0);
+  assert.match(environment.sentSheet.rows[0][headers.message - 1], /multiple Tracker rows/i);
+});
+
+test("missing delivery-time template variable writes detailed Sent and Tracker errors", () => {
+  const { environment, sandbox } = createServerEnvironment([
+    makeSentRow(new Date("2026-07-10T16:59:00.000Z"))
+  ]);
+  sandbox.getTemplateByKey_ = () => ({ subject: "Hello {{Deleted Column}}", body: "Body", attachmentLink: "" });
+  sandbox.getRowData_ = () => ({ "Student Name": "Alice Student" });
+  const summary = sandbox.processScheduledEmails_({
+    spreadsheet: environment.spreadsheet, sentSheet: environment.sentSheet,
+    lock: environment.lock, now: NOW, effectiveUser: environment.effectiveUser,
+    sendEmail: message => environment.sends.push(message)
+  });
+  const headers = headersFor(environment.sentSheet);
+  assert.equal(summary.failed, 1);
+  assert.equal(environment.sends.length, 0);
+  assert.match(environment.sentSheet.rows[0][headers.message - 1], /Deleted Column/);
+  assert.match(environment.tracker.rows[0][1], /^Error: .*Deleted Column/);
 });
 
 test("manual scheduled-trigger setup uses one five-minute handler", () => {

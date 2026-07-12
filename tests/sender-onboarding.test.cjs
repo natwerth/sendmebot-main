@@ -306,23 +306,25 @@ test("duplicate or failed trigger creation blocks safely", () => {
   }), /could not be authorized or enabled/);
 });
 
-test("trigger setup failure occurs before queue, tracker, or checkbox writes", () => {
+test("trigger setup failure follows early tracker feedback but leaves selections intact", () => {
   const tracker = {};
   const spreadsheet = { getSheetByName() { return {}; } };
   const sandbox = loadEmailsSandbox({
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {} }
   });
-  const calls = { tracker: 0, queue: 0, checkbox: 0 };
+  const calls = { started: 0, error: 0, queue: 0, checkbox: 0 };
   sandbox.getTrackerSheet_ = () => tracker;
-  sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getHeaders_ = () => ({ select: 1, status: 2, "student name": 3 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
-  const prepared = { 2: { subject: "Prepared once", metadata: {} } };
-  sandbox.preflightScheduledRows_ = () => ({
-    validRows: [2], failures: [], preparedRows: prepared
+  sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
+  sandbox.prepareScheduledRows_ = () => ({
+    validRows: [2], failures: [], preparedRows: { 2: { recordIdValue: "Alice" } }
   });
   sandbox.ensureCurrentUserScheduledTrigger_ = () => { throw new Error("authorization required"); };
-  sandbox.ensureTrackerColumnForTemplate_ = () => { calls.tracker++; };
+  sandbox.ensureTrackerColumnForTemplate_ = () => 4;
+  sandbox.markSchedulingRowsStarted_ = () => { calls.started++; };
+  sandbox.markSchedulingRequestError_ = () => { calls.error++; };
   sandbox.saveQueuedJob_ = () => { calls.queue++; };
   sandbox.clearSelectedRow_ = () => { calls.checkbox++; };
 
@@ -334,15 +336,10 @@ test("trigger setup failure occurs before queue, tracker, or checkbox writes", (
     scheduledTimeZone: "America/Chicago",
     scheduledDisplayText: "Jan 1, 2099, 8:00 AM CST"
   }), /authorization required/);
-  assert.deepEqual(calls, { tracker: 0, queue: 0, checkbox: 0 });
-  const preflightSource = emailsSource.slice(
-    emailsSource.indexOf("function preflightScheduledRows_"),
-    emailsSource.indexOf("function queueSendFormJob")
-  );
-  assert.doesNotMatch(preflightSource, /getTemplateStatusColumn_/);
+  assert.deepEqual(calls, { started: 1, error: 1, queue: 0, checkbox: 0 });
 });
 
-test("document-lock failure leaves selections and tracker statuses intact", () => {
+test("scheduling document-lock failure does not process or clear rows", () => {
   const sandbox = loadEmailsSandbox({
     LockService: {
       getDocumentLock() { return { tryLock() { return false; }, releaseLock() {} }; },
@@ -351,16 +348,14 @@ test("document-lock failure leaves selections and tracker statuses intact", () =
     }
   });
   let cleared = 0;
-  let marked = 0;
   sandbox.clearSelectedRow_ = () => { cleared++; };
-  sandbox.markSchedulingRowsStarted_ = () => { marked++; };
-  const result = sandbox.processQueuedJobs_({});
+  sandbox.processOneQueuedJob_ = () => { throw new Error("must not process"); };
+  const result = sandbox.processSchedulingJobNow_({ attemptedRows: [2], rows: [2] });
   assert.equal(result.locked, true);
   assert.equal(cleared, 0);
-  assert.equal(marked, 0);
 });
 
-test("Scheduling status is batch-written and flushed before row processing", () => {
+test("Scheduling status is batch-written and flushed by the early feedback helper", () => {
   const events = [];
   const tracker = {
     getRange(row, col) {
@@ -372,70 +367,52 @@ test("Scheduling status is batch-written and flushed before row processing", () 
       };
     }
   };
-  const spreadsheet = {
-    getSheetByName(name) { return name === "Templates" ? {} : null; },
-    toast() {}
-  };
   const sandbox = loadEmailsSandbox({
     SpreadsheetApp: {
-      getActiveSpreadsheet: () => spreadsheet,
+      getActiveSpreadsheet: () => ({}),
       flush() { events.push({ type: "flush" }); }
     }
   });
-  sandbox.getTrackerSheet_ = () => tracker;
-  sandbox.getHeaders_ = () => ({ status: 1, select: 3 });
   sandbox.getTemplateStatusColumn_ = () => 2;
-  sandbox.clearSelectedRow_ = () => {};
-  sandbox.scheduleOneRow_ = (ss, sheet, row) => {
-    events.push({ type: "row", row });
-    return { status: "scheduled", row, error: "" };
-  };
+  sandbox.markSchedulingRowsStarted_(tracker, { status: 1 }, [2, 5], "Welcome");
 
-  sandbox.processOneQueuedJob_({
-    action: "schedule", rows: [2, 5], attemptedRows: [2, 5],
-    template: "Welcome", sender: "owner@akamai.com",
-    scheduledForIso: "2099-01-01T14:00:00.000Z"
-  }, {});
-
-  assert.deepEqual(events.slice(0, 4), [
+  assert.deepEqual(events, [
     { type: "batch", ranges: ["R2C2", "R5C2"], value: "Scheduling..." },
     { type: "batch", ranges: ["R2C1", "R5C1"], value: "Scheduling..." },
-    { type: "flush" },
-    { type: "row", row: 2 }
+    { type: "flush" }
   ]);
 });
 
-test("scheduling writes its job only after trigger readiness is verified", () => {
+test("scheduling begins row processing only after trigger readiness is verified", () => {
   const tracker = {};
   const spreadsheet = { getSheetByName() { return {}; } };
   const sandbox = loadEmailsSandbox({
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {} }
   });
   let triggerReady = false;
-  let queued = false;
+  let processed = false;
   sandbox.getTrackerSheet_ = () => tracker;
-  sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getHeaders_ = () => ({ select: 1, status: 2, "student name": 3 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
-  const prepared = { 2: { subject: "Prepared once", metadata: {} } };
-  sandbox.preflightScheduledRows_ = () => ({
+  const prepared = { 2: { recordIdValue: "Alice" } };
+  sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
+  sandbox.prepareScheduledRows_ = () => ({
     validRows: [2], failures: [], preparedRows: prepared
   });
+  sandbox.markSchedulingRowsStarted_ = () => {};
   sandbox.ensureCurrentUserScheduledTrigger_ = () => {
     triggerReady = true;
     return { status: "ready" };
   };
   sandbox.ensureTrackerColumnForTemplate_ = () => {
-    assert.equal(triggerReady, true);
     return 2;
   };
   sandbox.getTemplateStatusColumn_ = () => 2;
-  sandbox.saveQueuedJob_ = () => {
+  sandbox.processSchedulingJobNow_ = job => {
     assert.equal(triggerReady, true);
-    queued = true;
-  };
-  sandbox.processQueuedJobs_ = preparedJobs => {
-    assert.equal(Object.values(preparedJobs)[0], prepared);
+    assert.equal(job.preparedScheduledRows, prepared);
+    processed = true;
     return {
       attempted: 1, successful: 1, sent: 0, scheduled: 1, failed: 0,
       successfulRows: [2], failedRows: [], errors: [], skipped: 0, locked: false
@@ -450,7 +427,7 @@ test("scheduling writes its job only after trigger readiness is verified", () =>
     scheduledTimeZone: "America/Chicago",
     scheduledDisplayText: "Jan 1, 2099, 8:00 AM CST"
   });
-  assert.equal(queued, true);
+  assert.equal(processed, true);
   assert.equal(result.scheduled, 1);
 });
 
@@ -554,7 +531,7 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
   assert.match(formSource, /id="senderProfileEmail" type="email" readonly/);
   assert.match(formSource, /id="senderOnboarding"/);
   assert.doesNotMatch(formSource, /<select id="sender">/);
-  assert.match(formSource, /button-loading-sweep 1\.25s linear infinite/);
+  assert.doesNotMatch(formSource, /button-loading-sweep|@keyframes/);
   assert.doesNotMatch(formSource, /id="senderDisplaySignature"/);
   assert.ok(
     script.indexOf('setSubmitButtonState(\n          "working"') <

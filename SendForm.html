@@ -296,25 +296,6 @@
       button.status-working:disabled {
         background: var(--status-yellow-bg);
         color: var(--status-yellow-text);
-        background-image: linear-gradient(
-          110deg,
-          transparent 0%,
-          transparent 32%,
-          rgba(251, 188, 4, 0.34) 48%,
-          transparent 64%,
-          transparent 100%
-        );
-        background-size: 220% 100%;
-        animation: button-loading-sweep 1.25s linear infinite;
-      }
-
-      @keyframes button-loading-sweep {
-        from { background-position: 120% 0; }
-        to { background-position: -120% 0; }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        button.status-working:disabled { animation: none; }
       }
 
       button.status-success:disabled {

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font: 14px Arial, sans-serif; color: #202124; margin: 0; padding: 20px; }
+      .field { margin-bottom: 16px; }
+      label { display: block; font-weight: 600; margin-bottom: 6px; }
+      select { box-sizing: border-box; width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #dadce0; border-radius: 4px; background: white; }
+      .helper { color: #5f6368; font-size: 12px; line-height: 1.4; margin-top: 5px; }
+      .error { color: #b3261e; min-height: 18px; white-space: pre-wrap; }
+      .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+      button { border: 0; border-radius: 18px; min-height: 36px; padding: 0 16px; color: #1a73e8; background: white; font-weight: 600; cursor: pointer; }
+      button.primary { background: #1a73e8; color: white; }
+      button:disabled { opacity: .55; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <div class="field">
+      <label for="trackerSheet">Tracker sheet</label>
+      <select id="trackerSheet" onchange="renderHeaders()"></select>
+    </div>
+    <div class="field">
+      <label for="recordIdHeader">Record ID column</label>
+      <select id="recordIdHeader"></select>
+      <div class="helper">Scheduled emails use this value to find the same record after rows are sorted.</div>
+    </div>
+    <div id="error" class="error" role="alert"></div>
+    <div class="actions">
+      <button type="button" onclick="google.script.host.close()">Cancel</button>
+      <button id="save" type="button" class="primary" onclick="saveSetup()">Save</button>
+    </div>
+    <script>
+      const context = <?!= contextJson ?>;
+      const sheetSelect = document.getElementById("trackerSheet");
+      const headerSelect = document.getElementById("recordIdHeader");
+
+      (context.sheets || []).forEach(sheet => {
+        const option = document.createElement("option");
+        option.value = sheet.name;
+        option.textContent = sheet.name;
+        sheetSelect.appendChild(option);
+      });
+      sheetSelect.value = context.config.trackerSheetName;
+
+      function renderHeaders() {
+        const sheet = (context.sheets || []).find(item => item.name === sheetSelect.value);
+        headerSelect.innerHTML = "";
+        ((sheet && sheet.headers) || []).forEach(header => {
+          const option = document.createElement("option");
+          option.value = header;
+          option.textContent = header;
+          headerSelect.appendChild(option);
+        });
+        if (sheetSelect.value === context.config.trackerSheetName) {
+          headerSelect.value = context.config.recordIdHeader;
+        }
+      }
+
+      function saveSetup() {
+        const button = document.getElementById("save");
+        const error = document.getElementById("error");
+        button.disabled = true;
+        button.textContent = "Saving…";
+        error.textContent = "";
+        google.script.run
+          .withSuccessHandler(function() { google.script.host.close(); })
+          .withFailureHandler(function(err) {
+            error.textContent = err && err.message ? err.message : "Setup could not be saved.";
+            button.disabled = false;
+            button.textContent = "Save";
+          })
+          .saveSendMeBotSetup({
+            trackerSheetName: sheetSelect.value,
+            recordIdHeader: headerSelect.value
+          });
+      }
+
+      renderHeaders();
+    </script>
+  </body>
+</html>

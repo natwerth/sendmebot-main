@@ -10,6 +10,8 @@ function onOpen() {
     .addItem("Sender profile", "openAddSenderForm")
     .addItem("Add image", "openAddImageForm")
     .addSeparator()
+    .addItem("Setup", "openSetupForm")
+    .addSeparator()
     .addItem("SendMeBot Assistant", "openSendMeBotAssistant")
     .addToUi();
 }
@@ -121,6 +123,13 @@ function openAddImageForm() {
   SpreadsheetApp.getUi().showModelessDialog(html, "Add image");
 }
 
+function openSetupForm() {
+  const template = HtmlService.createTemplateFromFile("SetupForm");
+  template.contextJson = JSON.stringify(getSendMeBotSetupContext_());
+  const html = template.evaluate().setWidth(400).setHeight(330);
+  SpreadsheetApp.getUi().showModalDialog(html, "SendMeBot setup");
+}
+
 // --- Assistant sidebar ---
 function openSendMeBotAssistant() {
   const template = HtmlService.createTemplateFromFile("AssistantSidebar");
@@ -134,13 +143,79 @@ function openSendMeBotAssistant() {
 }
 
 const TRACKER_SHEET_NAME = "Hires & Conversion - Intern";
+const DEFAULT_RECORD_ID_HEADER = "Student Name";
+const TRACKER_SHEET_PROPERTY = "SENDMEBOT_TRACKER_SHEET";
+const RECORD_ID_HEADER_PROPERTY = "SENDMEBOT_RECORD_ID_HEADER";
+
+function getSendMeBotConfig_(runtime) {
+  const options = runtime || {};
+  const properties = options.properties || PropertiesService.getDocumentProperties();
+  return {
+    trackerSheetName: String(properties.getProperty(TRACKER_SHEET_PROPERTY) || TRACKER_SHEET_NAME),
+    recordIdHeader: String(properties.getProperty(RECORD_ID_HEADER_PROPERTY) || DEFAULT_RECORD_ID_HEADER)
+  };
+}
+
+function getSendMeBotSetupContext_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const config = getSendMeBotConfig_();
+  return {
+    config: config,
+    sheets: ss.getSheets().map(sheet => ({
+      name: sheet.getName(),
+      headers: sheet.getLastColumn() > 0
+        ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+            .map(value => String(value || "").trim()).filter(Boolean)
+        : []
+    }))
+  };
+}
+
+function saveSendMeBotSetup(formData) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const trackerSheetName = String((formData && formData.trackerSheetName) || "").trim();
+  const recordIdHeader = String((formData && formData.recordIdHeader) || "").trim();
+  const sheet = ss.getSheetByName(trackerSheetName);
+  if (!sheet) throw new Error("Selected tracker sheet no longer exists.");
+  if (!recordIdHeader) throw new Error("Record ID column is required.");
+
+  const rawHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+    .map(value => String(value || "").trim());
+  const normalizedHeaders = rawHeaders.filter(Boolean).map(normalize_);
+  const duplicateHeaders = normalizedHeaders.filter((value, index) =>
+    normalizedHeaders.indexOf(value) !== index
+  );
+  if (duplicateHeaders.length) {
+    throw new Error("Tracker headers must be unique before Setup can be saved.");
+  }
+
+  const headers = getHeaders_(sheet);
+  if (!headers["select"]) throw new Error('Selected tracker sheet is missing the "Select" column.');
+  if (!headers["status"]) throw new Error('Selected tracker sheet is missing the "Status" column.');
+  if (!headers[normalize_(recordIdHeader)]) {
+    throw new Error('Record ID column "' + recordIdHeader + '" was not found.');
+  }
+
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    PropertiesService.getDocumentProperties().setProperties({
+      [TRACKER_SHEET_PROPERTY]: trackerSheetName,
+      [RECORD_ID_HEADER_PROPERTY]: recordIdHeader
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return { trackerSheetName: trackerSheetName, recordIdHeader: recordIdHeader };
+}
 
 function getTrackerSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(TRACKER_SHEET_NAME);
+  const config = getSendMeBotConfig_();
+  const sheet = ss.getSheetByName(config.trackerSheetName);
 
   if (!sheet) {
-    throw new Error('Missing tracker sheet: "' + TRACKER_SHEET_NAME + '".');
+    throw new Error('Missing tracker sheet: "' + config.trackerSheetName + '". Open SendMeBot → Setup.');
   }
 
   return sheet;
