@@ -3,72 +3,127 @@
   <head>
     <base target="_top">
     <?!= includeHtml_("Modal") ?>
-    <style>
-      body { font: 14px Arial, sans-serif; color: #202124; margin: 0; padding: 20px; }
-      .field { margin-bottom: 16px; }
-      label { display: block; color: #202124; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-      select { box-sizing: border-box; width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #dadce0; border-radius: 4px; background: white; }
-      select:focus { border: 1px solid #dadce0; outline: auto; }
-      .helper { color: #5f6368; font-size: 12px; line-height: 1.4; margin-top: 5px; }
-      .error { color: #b3261e; min-height: 18px; white-space: pre-wrap; }
-      .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-      button { min-width: 0; border: 0; border-radius: 18px; min-height: 36px; padding: 0 16px; color: #1a73e8; background: white; font: inherit; font-weight: 600; cursor: pointer; }
-      button.primary { background: #1a73e8; color: white; }
-      button:disabled { opacity: .55; cursor: default; }
-    </style>
   </head>
+
   <body>
-    <div class="field">
-      <label for="trackerSheet">Tracker sheet</label>
-      <select id="trackerSheet" onchange="renderHeaders()"></select>
+    <div class="wrap">
+
+      <div class="field">
+        <label for="trackerSheet">Tracker sheet</label>
+        <select id="trackerSheet" onchange="renderHeaders()"></select>
+      </div>
+
+      <div class="field">
+        <label for="recordIdHeader">Record ID column</label>
+        <select id="recordIdHeader"></select>
+
+        <div class="helper">
+          Scheduled emails use this value to find the same record after rows are sorted.
+        </div>
+      </div>
+
+      <div id="error" class="message error" role="alert"></div>
+
+      <div class="button-row">
+        <button
+          type="button"
+          class="secondary"
+          onclick="google.script.host.close()"
+        >
+          Cancel
+        </button>
+
+        <button
+          id="saveButton"
+          type="button"
+          class="primary"
+          onclick="saveSetup()"
+        >
+          Save
+        </button>
+      </div>
     </div>
-    <div class="field">
-      <label for="recordIdHeader">Record ID column</label>
-      <select id="recordIdHeader"></select>
-      <div class="helper">Scheduled emails use this value to find the same record after rows are sorted.</div>
-    </div>
-    <div id="error" class="error" role="alert"></div>
-    <div class="actions">
-      <button type="button" onclick="google.script.host.close()">Cancel</button>
-      <button id="save" type="button" class="primary" onclick="saveSetup()">Save</button>
-    </div>
+
     <script>
       const context = <?!= contextJson ?>;
+
       const sheetSelect = document.getElementById("trackerSheet");
       const headerSelect = document.getElementById("recordIdHeader");
+      const saveButton = document.getElementById("saveButton");
+      const errorElement = document.getElementById("error");
 
-      (context.sheets || []).forEach(sheet => {
-        const option = document.createElement("option");
-        option.value = sheet.name;
-        option.textContent = sheet.name;
-        sheetSelect.appendChild(option);
-      });
-      sheetSelect.value = context.config.trackerSheetName;
+      function initializeSheetOptions() {
+        (context.sheets || []).forEach(function(sheet) {
+          const option = document.createElement("option");
+          option.value = sheet.name;
+          option.textContent = sheet.name;
+          sheetSelect.appendChild(option);
+        });
+
+        sheetSelect.value = context.config.trackerSheetName || "";
+      }
 
       function renderHeaders() {
-        const sheet = (context.sheets || []).find(item => item.name === sheetSelect.value);
+        const selectedSheet = (context.sheets || []).find(function(sheet) {
+          return sheet.name === sheetSelect.value;
+        });
+
         headerSelect.innerHTML = "";
-        ((sheet && sheet.headers) || []).forEach(header => {
+
+        ((selectedSheet && selectedSheet.headers) || []).forEach(function(header) {
           const option = document.createElement("option");
           option.value = header;
           option.textContent = header;
           headerSelect.appendChild(option);
         });
+
         if (sheetSelect.value === context.config.trackerSheetName) {
-          headerSelect.value = context.config.recordIdHeader;
+          headerSelect.value = context.config.recordIdHeader || "";
         }
       }
 
       function saveSetup() {
-        const button = document.getElementById("save");
-        const error = document.getElementById("error");
-        SendMeBotModal.setButtonBusy(button, true, "Saving…", "Save");
-        error.textContent = "";
+        clearMessages();
+
+        if (!sheetSelect.value) {
+          showError("Select a tracker sheet.");
+          return;
+        }
+
+        if (!headerSelect.value) {
+          showError("Select a Record ID column.");
+          return;
+        }
+
+        SendMeBotModal.setButtonBusy(
+          saveButton,
+          true,
+          "Saving...",
+          "Save"
+        );
+
         google.script.run
-          .withSuccessHandler(function() { google.script.host.close(); })
-          .withFailureHandler(function(err) {
-            error.textContent = SendMeBotModal.errorText(err, "Setup could not be saved.");
-            SendMeBotModal.setButtonBusy(button, false, "Saving…", "Save");
+          .withSuccessHandler(function() {
+            saveButton.textContent = "Saved";
+
+            setTimeout(function() {
+              google.script.host.close();
+            }, 500);
+          })
+          .withFailureHandler(function(error) {
+            showError(
+              SendMeBotModal.errorText(
+                error,
+                "Setup could not be saved."
+              )
+            );
+
+            SendMeBotModal.setButtonBusy(
+              saveButton,
+              false,
+              "Saving...",
+              "Save"
+            );
           })
           .saveSendMeBotSetup({
             trackerSheetName: sheetSelect.value,
@@ -76,6 +131,16 @@
           });
       }
 
+      function clearMessages() {
+        SendMeBotModal.clearText(["error"]);
+      }
+
+      function showError(message) {
+        errorElement.textContent =
+          message || "Something went wrong.";
+      }
+
+      initializeSheetOptions();
       renderHeaders();
     </script>
   </body>

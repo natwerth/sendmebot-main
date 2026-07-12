@@ -46,7 +46,7 @@ function openSendMeBotForm_(actionMode) {
   const html = template
     .evaluate()
     .setWidth(340)
-    .setHeight(actionMode === "schedule" ? 650 : 545);
+    .setHeight(actionMode === "schedule" ? 550 : 375);
 
   const title = actionMode === "schedule"
     ? "Schedule selected"
@@ -108,7 +108,7 @@ function openAddSenderForm() {
   const html = template
     .evaluate()
     .setWidth(400)
-    .setHeight(435);
+    .setHeight(330);
 
   SpreadsheetApp.getUi().showModelessDialog(html, "Sender profile");
 }
@@ -131,7 +131,7 @@ function includeHtml_(filename) {
 function openSetupForm() {
   const template = HtmlService.createTemplateFromFile("SetupForm");
   template.contextJson = JSON.stringify(getSendMeBotSetupContext_());
-  const html = template.evaluate().setWidth(400).setHeight(330);
+  const html = template.evaluate().setWidth(340).setHeight(220);
   SpreadsheetApp.getUi().showModalDialog(html, "SendMeBot setup");
 }
 
