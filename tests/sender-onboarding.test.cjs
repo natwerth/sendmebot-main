@@ -299,6 +299,41 @@ test("SendForm bootstrap exposes recipient-safe authorized sender options", () =
   assert.equal(JSON.stringify(context).includes("Other signature"), false);
 });
 
+test("blank Email headers are recipients while blank tracking columns stay excluded", () => {
+  const sandbox = loadEmailsSandbox();
+  sandbox.getTrackerHeaderForTemplate_ = key => String(key || "").replace(/\s+Email$/i, "") + " Email";
+
+  const displayHeaders = [
+    "Select", "Mentor Email", "Hiring Manager", "Audit Recipients",
+    "Welcome Email", "Status Email"
+  ];
+  const rows = [[false, "", "", "audit@example.com", "", "Sent on 7/10"]];
+  const sheet = {
+    getLastRow: () => rows.length + 1,
+    getLastColumn: () => displayHeaders.length,
+    getRange(row, col, numRows, numCols) {
+      return {
+        getDisplayValues() {
+          const source = row === 1 ? [displayHeaders] : rows;
+          return source.slice(0, numRows || 1).map(values =>
+            values.slice(col - 1, col - 1 + (numCols || 1))
+          );
+        }
+      };
+    }
+  };
+  const headers = {};
+  displayHeaders.forEach((header, index) => { headers[normalize(header)] = index + 1; });
+
+  const fields = JSON.parse(JSON.stringify(
+    sandbox.getRecipientFieldsForSendForm_(sheet, headers, ["Welcome"])
+  ));
+  assert.deepEqual(fields, [
+    { header: "Audit Recipients", label: "Audit Recipients" },
+    { header: "Mentor Email", label: "Mentor" }
+  ]);
+});
+
 test("existing trigger is reused and missing trigger is created exactly once", () => {
   const sandbox = loadEmailsSandbox();
   const readyApp = createTriggerApp([trigger()]);

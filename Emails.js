@@ -160,6 +160,7 @@ function getRecipientFieldsForSendForm_(sheet, headers, templateKeys) {
 
   (templateKeys || []).forEach(key => {
     templateKeyMap[normalize_(key)] = true;
+    templateKeyMap[normalize_(getTrackerHeaderForTemplate_(key))] = true;
   });
 
   const lastRow = sheet.getLastRow();
@@ -210,15 +211,8 @@ function getRecipientFieldsForSendForm_(sheet, headers, templateKeys) {
       }
     }
 
-    // Main rule:
-    // A recipient column must contain actual email-looking values.
-    // This prevents "Hiring Manager", "Manager First Name", etc.
-    if (!valuesSuggestEmail) return;
-
-    // Secondary rule:
-    // If the header does not say Email, still allow it only when the sampled
-    // values clearly contain email addresses. This supports future CC/BCC helper
-    // columns without making the detection stupid again.
+    // Explicit Email headers remain eligible when their sampled cells are blank.
+    // Other headers still require actual email-looking values.
     if (!headerSuggestsEmail && !valuesSuggestEmail) return;
 
     fields.push({
