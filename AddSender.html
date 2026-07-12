@@ -2,87 +2,22 @@
 <html>
   <head>
     <base target="_top">
+    <?!= includeHtml_("Modal") ?>
 
     <style>
       :root {
-        --google-blue: #0b57d0;
-        --google-blue-hover-bg: #eef2fb;
-        --text-primary: #1f1f1f;
-        --text-secondary: #5f6368;
-        --placeholder: #9aa0a6;
-        --border: #dadce0;
-        --focus-blue: #1a73e8;
-        --error: #b3261e;
-        --success: #137333;
-        --chip-bg: #f8fafd;
-        --chip-border: #d2e3fc;
         --panel-bg: #f8fafd;
         --overlay-bg: rgba(32, 33, 36, 0.38);
         --akamai-blue: #0099cc;
         --signature-charcoal: #666666;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        font-family: "Roboto", Arial, sans-serif;
-        color: var(--text-primary);
-        background: #ffffff;
-      }
-
-      .wrap {
-        padding: 0;
-      }
-
-      .intro {
-        margin-bottom: 14px;
-        font-size: 13px;
-        line-height: 1.4;
-        color: var(--text-secondary);
-      }
-
-      .field {
-        margin-bottom: 14px;
-      }
-
-      label {
-        display: block;
-        margin-bottom: 6px;
-        font-size: 13px;
-        color: #3c4043;
-      }
-
-      input,
       .editor {
         width: 100%;
         background: #ffffff;
         color: var(--text-primary);
         font-family: "Roboto", Arial, sans-serif;
         font-size: 14px;
-      }
-
-      input {
-        height: 36px;
-        padding: 6px 10px;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-      }
-
-      input::placeholder {
-        color: var(--placeholder);
-      }
-
-      input:focus::placeholder {
-        color: transparent;
-      }
-
-      input:focus {
-        border: 2px solid var(--focus-blue);
-        outline: none;
       }
 
       .editor {
@@ -274,58 +209,6 @@
         font-size: 12px;
         font-weight: 700;
         background: var(--chip-bg);
-      }
-
-      .message {
-        margin-top: 10px;
-        font-size: 13px;
-        line-height: 1.4;
-        white-space: pre-wrap;
-      }
-
-      .error {
-        color: var(--error);
-      }
-
-      .status {
-        color: var(--success);
-      }
-
-      .button-row {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 8px;
-        margin-top: 18px;
-      }
-
-      button {
-        min-width: 64px;
-        height: 36px;
-        padding: 0 14px;
-        border: none;
-        border-radius: 18px;
-        font-family: "Roboto", Arial, sans-serif;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-
-      button.secondary,
-      button.primary {
-        background: #ffffff;
-        color: var(--google-blue);
-      }
-
-      button.secondary:hover,
-      button.primary:hover {
-        background: var(--google-blue-hover-bg);
-      }
-
-      button:disabled {
-        background: #f1f3f4;
-        color: #9aa0a6;
-        cursor: not-allowed;
       }
 
       .link-overlay {

@@ -116,11 +116,16 @@ function openAddSenderForm() {
 
 function openAddImageForm() {
   const html = HtmlService
-    .createHtmlOutputFromFile("AddImage")
+    .createTemplateFromFile("AddImage")
+    .evaluate()
     .setWidth(400)
     .setHeight(275);
 
   SpreadsheetApp.getUi().showModelessDialog(html, "Add image");
+}
+
+function includeHtml_(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 function openSetupForm() {
@@ -191,7 +196,6 @@ function saveSendMeBotSetup(formData) {
 
   const headers = getHeaders_(sheet);
   if (!headers["select"]) throw new Error('Selected tracker sheet is missing the "Select" column.');
-  if (!headers["status"]) throw new Error('Selected tracker sheet is missing the "Status" column.');
   if (!headers[normalize_(recordIdHeader)]) {
     throw new Error('Record ID column "' + recordIdHeader + '" was not found.');
   }

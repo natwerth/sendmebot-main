@@ -458,25 +458,19 @@ function getSelectedRowCountOnly() {
 
 // --- Status stamping ---
 
-function stampTemplateColumn_(sheet, row, headers, key) {
-  const col = getTemplateStatusColumn_(headers, key, true);
+function stampTemplateColumn_(sheet, row, headers, key, trackingEnabled) {
+  if (trackingEnabled === false) return;
+  const col = getTemplateStatusColumn_(headers, key);
   const formatted = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d");
 
   if (col) sheet.getRange(row, col).setValue("Sent on " + formatted);
 }
 
 
-function stampTemplateFailure_(sheet, row, headers, key) {
-  const col = getTemplateStatusColumn_(headers, key, true);
+function stampTemplateFailure_(sheet, row, headers, key, trackingEnabled) {
+  if (trackingEnabled === false) return;
+  const col = getTemplateStatusColumn_(headers, key);
   if (col) sheet.getRange(row, col).setValue("Error: Not Sent");
-}
-
-
-function setStatus_(sheet, row, statusCol, value) {
-  if (!statusCol) return;
-
-  sheet.getRange(row, statusCol).setValue(value);
-  SpreadsheetApp.flush();
 }
 
 

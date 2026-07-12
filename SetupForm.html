@@ -2,15 +2,17 @@
 <html>
   <head>
     <base target="_top">
+    <?!= includeHtml_("Modal") ?>
     <style>
       body { font: 14px Arial, sans-serif; color: #202124; margin: 0; padding: 20px; }
       .field { margin-bottom: 16px; }
-      label { display: block; font-weight: 600; margin-bottom: 6px; }
+      label { display: block; color: #202124; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
       select { box-sizing: border-box; width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #dadce0; border-radius: 4px; background: white; }
+      select:focus { border: 1px solid #dadce0; outline: auto; }
       .helper { color: #5f6368; font-size: 12px; line-height: 1.4; margin-top: 5px; }
       .error { color: #b3261e; min-height: 18px; white-space: pre-wrap; }
       .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-      button { border: 0; border-radius: 18px; min-height: 36px; padding: 0 16px; color: #1a73e8; background: white; font-weight: 600; cursor: pointer; }
+      button { min-width: 0; border: 0; border-radius: 18px; min-height: 36px; padding: 0 16px; color: #1a73e8; background: white; font: inherit; font-weight: 600; cursor: pointer; }
       button.primary { background: #1a73e8; color: white; }
       button:disabled { opacity: .55; cursor: default; }
     </style>
@@ -60,15 +62,13 @@
       function saveSetup() {
         const button = document.getElementById("save");
         const error = document.getElementById("error");
-        button.disabled = true;
-        button.textContent = "Saving…";
+        SendMeBotModal.setButtonBusy(button, true, "Saving…", "Save");
         error.textContent = "";
         google.script.run
           .withSuccessHandler(function() { google.script.host.close(); })
           .withFailureHandler(function(err) {
-            error.textContent = err && err.message ? err.message : "Setup could not be saved.";
-            button.disabled = false;
-            button.textContent = "Save";
+            error.textContent = SendMeBotModal.errorText(err, "Setup could not be saved.");
+            SendMeBotModal.setButtonBusy(button, false, "Saving…", "Save");
           })
           .saveSendMeBotSetup({
             trackerSheetName: sheetSelect.value,

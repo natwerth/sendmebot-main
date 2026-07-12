@@ -209,7 +209,6 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
     getAuthenticatedUserEmail_() { return environment.effectiveUser; },
     getTrackerSheet_() { return tracker; },
     getTemplateStatusColumn_() { return 2; },
-    getTemplateStatusColumns_() { return [{ headerName: "Welcome", col: 2 }]; },
     getTemplateByKey_() { return { attachmentLink: "" }; },
     getSenderProfile_() { return { name: "Owner", email: "owner@example.com", signatureText: "" }; },
     getRowData_() { return { "Student Name": "Alice Student" }; },
@@ -229,7 +228,6 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
     getImageAssets_() { return {}; },
     stampTemplateColumn_(sheet, row) { sheet.getRange(row, 2).setValue("Sent on 7/10"); },
     stampTemplateFailure_(sheet, row) { sheet.getRange(row, 2).setValue("Error: Not Sent"); },
-    setStatus_(sheet, row, col, value) { if (col) sheet.getRange(row, col).setValue(value); },
     logSentEmail_(ss, logData) {
       if (environment.logError) throw environment.logError;
       environment.queuedLogs.push(logData);
@@ -246,7 +244,6 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
   sandbox.getAuthenticatedUserEmail_ = () => environment.effectiveUser;
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getTemplateStatusColumn_ = () => 2;
-  sandbox.getTemplateStatusColumns_ = () => [{ headerName: "Welcome", col: 2 }];
   sandbox.getTemplateByKey_ = () => ({ attachmentLink: "" });
   sandbox.getSenderProfile_ = () => ({ name: "Owner", email: "owner@example.com", signatureText: "" });
   sandbox.getRowData_ = () => ({ "Student Name": "Alice Student" });
@@ -259,7 +256,6 @@ function createServerEnvironment(sentRows, sentHeaders = SENT_HEADERS) {
   sandbox.getImageAssets_ = () => ({});
   sandbox.stampTemplateColumn_ = (sheet, row) => sheet.getRange(row, 2).setValue("Sent on 7/10");
   sandbox.stampTemplateFailure_ = (sheet, row) => sheet.getRange(row, 2).setValue("Error: Not Sent");
-  sandbox.setStatus_ = (sheet, row, col, value) => { if (col) sheet.getRange(row, col).setValue(value); };
   sandbox.logSentEmail_ = (ss, logData) => {
     if (environment.logError) throw environment.logError;
     environment.queuedLogs.push(logData);
@@ -404,6 +400,7 @@ test("scheduling writes one complete queue record before tracker scheduled statu
   assert.equal(row.body, "");
   assert.equal(JSON.parse(row.logNote).version, 3);
   assert.equal(environment.tracker.rows[0][1], "Scheduled for 7/11");
+  assert.equal(environment.tracker.rows[0][0], "");
   assert.equal(environment.tracker.notesWritten, 0);
 });
 
@@ -461,6 +458,7 @@ test("due row renders current Tracker data and finalizes as Sent", () => {
   assert.match(environment.sentSheet.rows[0][headers["log note"] - 1], /renderedHtmlBody/);
   assert.equal(environment.sentSheet.writes.some(write => write.value === "Processing"), true);
   assert.equal(environment.tracker.rows[0][1], "Sent on 7/10");
+  assert.equal(environment.tracker.rows[0][0], "Scheduled");
 });
 
 test("blank tracker status cancels the due queue row without sending", () => {

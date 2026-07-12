@@ -2,41 +2,16 @@
 <html>
   <head>
     <base target="_top">
+    <?!= includeHtml_("Modal") ?>
 
     <style>
       :root {
-        --google-blue: #0b57d0;
-        --google-blue-hover-bg: #eef2fb;
-        --text-primary: #1f1f1f;
-        --text-secondary: #5f6368;
-        --border: #dadce0;
-        --focus-blue: #1a73e8;
-        --error: #b3261e;
-        --success: #137333;
-        --chip-bg: #f8fafd;
-        --chip-border: #d2e3fc;
         --status-yellow-bg: #fff2cc;
         --status-yellow-text: #7f5f00;
         --status-green-bg: #d9ead3;
         --status-green-text: #137333;
         --status-red-bg: #f4cccc;
         --status-red-text: #b3261e;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        font-family: "Roboto", Arial, sans-serif;
-        color: var(--text-primary);
-        background: #ffffff;
-      }
-
-      .dialog {
-        padding: 0;
       }
 
       .meta {
@@ -60,6 +35,49 @@
 
       .field {
         margin-bottom: 18px;
+      }
+
+      .tracking-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: -10px 0 18px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .tracking-option.hidden {
+        display: none;
+      }
+
+      .tracking-option input {
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        margin: 1px 0 0;
+        padding: 0;
+        border: initial;
+        border-radius: 0;
+        background: initial;
+        appearance: auto;
+      }
+
+      .tracking-option input:focus {
+        border: initial;
+        outline: auto;
+      }
+
+      .tracking-option label {
+        margin: 0;
+        color: var(--text-primary);
+        font-size: 13px;
+      }
+
+      .tracking-helper {
+        margin-top: 3px;
+        color: var(--text-secondary);
+        font-size: 12px;
       }
 
       .sender-card,
@@ -174,10 +192,6 @@
         box-shadow: none;
       }
 
-      .hidden {
-        display: none;
-      }
-
       .recipient-toggle-row {
         display: flex;
         align-items: center;
@@ -264,35 +278,6 @@
         margin-top: 14px;
       }
 
-      button {
-        min-width: 64px;
-        height: 36px;
-        padding: 0 14px;
-        border: none;
-        border-radius: 18px;
-        font-family: "Roboto", Arial, sans-serif;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-
-      button.secondary,
-      button.primary {
-        background: #ffffff;
-        color: var(--google-blue);
-      }
-
-      button.secondary:hover,
-      button.primary:hover {
-        background: var(--google-blue-hover-bg);
-      }
-
-      button:disabled {
-        background: #f1f3f4;
-        color: #9aa0a6;
-        cursor: not-allowed;
-      }
-
       button.status-working:disabled {
         background: var(--status-yellow-bg);
         color: var(--status-yellow-text);
@@ -329,6 +314,14 @@
         <select id="template">
           <option value="">Loading templates...</option>
         </select>
+      </div>
+
+      <div id="trackingOption" class="tracking-option hidden">
+        <input id="createTrackingColumn" type="checkbox" onchange="updateSubmitButton()">
+        <div>
+          <label for="createTrackingColumn">Create tracking column</label>
+          <div id="trackingHelper" class="tracking-helper"></div>
+        </div>
       </div>
 
       <div id="senderReady" class="sender-card hidden" aria-live="polite">
@@ -413,6 +406,7 @@
       const context = <?!= contextJson ?>;
       let selectedRowCount = Number(context.selectedRowCount || 0);
       let isSubmitting = false;
+      let lastTrackingTemplate = "";
 
       function initializeForm() {
         const rowLabel = context.actionMode === "schedule"
@@ -424,6 +418,8 @@
         document.getElementById("selectedRowCount").textContent = selectedRowCount;
 
         populateSelect("template", context.templates || []);
+        document.getElementById("template").addEventListener("change", renderTrackingOption);
+        renderTrackingOption();
         renderSenderState();
         populateRecipientSelect();
 
@@ -464,6 +460,31 @@
           option.textContent = value;
           select.appendChild(option);
         });
+      }
+
+      function selectedTemplateHasTrackingColumn() {
+        const template = document.getElementById("template").value;
+        return !!((context.templateTracking || {})[template]);
+      }
+
+      function renderTrackingOption() {
+        const template = document.getElementById("template").value;
+        const option = document.getElementById("trackingOption");
+        const checkbox = document.getElementById("createTrackingColumn");
+        const helper = document.getElementById("trackingHelper");
+
+        if (template !== lastTrackingTemplate) checkbox.checked = false;
+        lastTrackingTemplate = template;
+
+        if (!template || selectedTemplateHasTrackingColumn()) {
+          option.classList.add("hidden");
+        } else {
+          helper.textContent = context.actionMode === "schedule"
+            ? "Required for scheduled status and cancellation."
+            : "Optional. Sent results are always recorded in the Sent sheet.";
+          option.classList.remove("hidden");
+        }
+        updateSubmitButton();
       }
 
       function renderSenderState() {
@@ -806,8 +827,11 @@
         const blockedTrigger = context.actionMode === "schedule" &&
           context.triggerState &&
           (context.triggerState.status === "duplicate" || context.triggerState.status === "invalid");
+        const trackingBlocked = context.actionMode === "schedule" &&
+          !selectedTemplateHasTrackingColumn() &&
+          !document.getElementById("createTrackingColumn").checked;
         return !isSubmitting && !context.blockingError && senderReady &&
-          !blockedTrigger && selectedRowCount > 0;
+          !blockedTrigger && !trackingBlocked && selectedRowCount > 0;
       }
 
       function updateSubmitButton() {
@@ -910,6 +934,7 @@
           toField: toField,
           ccFields: ccFields,
           bccFields: bccFields,
+          createTrackingColumn: document.getElementById("createTrackingColumn").checked,
           scheduledForIso: action === "schedule" ? schedulePayload.scheduledForIso : "",
           scheduledTimeZone: action === "schedule" ? schedulePayload.scheduledTimeZone : "",
           scheduledDisplayText: action === "schedule" ? schedulePayload.scheduledDisplayText : ""
@@ -946,9 +971,10 @@
           .withFailureHandler(function(error) {
             isSubmitting = false;
             const element = document.getElementById("completionMessage");
-            element.textContent = error && error.message
-              ? error.message
-              : "The request could not be completed.";
+            element.textContent = SendMeBotModal.errorText(
+              error,
+              "The request could not be completed."
+            );
             element.classList.remove("hidden", "success");
             element.classList.add("error");
             cancelButton.disabled = false;
@@ -983,6 +1009,7 @@
       function setFormDisabled(disabled) {
         document.getElementById("template").disabled = disabled;
         document.getElementById("toField").disabled = disabled;
+        document.getElementById("createTrackingColumn").disabled = disabled;
 
         const scheduleDate = document.getElementById("scheduleDate");
         const scheduleTime = document.getElementById("scheduleTime");

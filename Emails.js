@@ -18,6 +18,10 @@ function getSendFormOpenContext_(actionMode) {
   const headers = getHeaders_(trackerSheet);
   const selectedRows = getSelectedRows_(trackerSheet, headers);
   const templates = getTemplateKeys_(templateSheet);
+  const templateTracking = {};
+  templates.forEach(templateKey => {
+    templateTracking[templateKey] = !!getTemplateStatusColumn_(headers, templateKey);
+  });
   let authenticatedEmail = "";
 
   try {
@@ -30,6 +34,7 @@ function getSendFormOpenContext_(actionMode) {
       senderState: { status: "blocked", record: null, duplicateCount: 0 },
       triggerState: { status: "unknown", count: 0 },
       templates: templates,
+      templateTracking: templateTracking,
       recipientFields: [],
       blockingError: err.message
     };
@@ -47,6 +52,7 @@ function getSendFormOpenContext_(actionMode) {
       senderState: { status: "blocked", record: null, duplicateCount: 0 },
       triggerState: { status: "unknown", count: 0 },
       templates: templates,
+      templateTracking: templateTracking,
       recipientFields: [],
       blockingError: err.message || String(err)
     };
@@ -70,6 +76,7 @@ function getSendFormOpenContext_(actionMode) {
     senderState: toSenderBootstrapState_(senderState),
     triggerState: triggerState,
     templates: templates,
+    templateTracking: templateTracking,
     recipientFields: getRecipientFieldsForSendForm_(trackerSheet, headers, templates),
     blockingError: ""
   };
@@ -233,22 +240,6 @@ function getRecipientFieldLabel_(header) {
   if (!label) return "Recipient";
 
   return label;
-}
-
-
-function isSendMeBotStatusColumn_(sheet, col, displayHeader) {
-  const lastRow = sheet.getLastRow();
-
-  if (lastRow < 2) {
-    return false;
-  }
-
-  const sampleSize = Math.min(lastRow - 1, 100);
-  const values = sheet
-    .getRange(2, 1, sampleSize, sheet.getLastColumn())
-    .getDisplayValues();
-
-  return isSendMeBotStatusColumnFromSample_(displayHeader, values, col);
 }
 
 
@@ -582,6 +573,7 @@ function queueSendFormJob(formData) {
   const scheduledForIso = String(formData.scheduledForIso || "").trim();
   const scheduledTimeZone = String(formData.scheduledTimeZone || "").trim();
   const scheduledDisplayText = String(formData.scheduledDisplayText || "").trim();
+  const createTrackingColumn = formData.createTrackingColumn === true;
 
   if (!templateKey) throw new Error("Template is required.");
   if (!toField) throw new Error("Recipient field is required.");
@@ -590,9 +582,19 @@ function queueSendFormJob(formData) {
     throw new Error("Unknown action: " + formData.action);
   }
 
-  if (action === "schedule") {
+  let trackTemplateStatus = !!getTemplateStatusColumn_(headers, templateKey);
+  if (!trackTemplateStatus && createTrackingColumn) {
     ensureTrackerColumnForTemplate_(templateKey);
     headers = getHeaders_(sheet);
+    trackTemplateStatus = !!getTemplateStatusColumn_(headers, templateKey);
+    if (!trackTemplateStatus) throw new Error("Tracking column creation could not be verified.");
+  }
+
+  if (action === "schedule" && !trackTemplateStatus) {
+    throw new Error("Create a tracking column before scheduling this template.");
+  }
+
+  if (action === "schedule") {
     markSchedulingRowsStarted_(sheet, headers, selectedRows, templateKey);
   }
 
@@ -676,11 +678,6 @@ function queueSendFormJob(formData) {
     }
   }
 
-  if (action !== "schedule") {
-    ensureTrackerColumnForTemplate_(templateKey);
-    headers = getHeaders_(sheet);
-  }
-
   const job = {
     jobId: makeJobId_(),
     createdAt: new Date().toISOString(),
@@ -697,7 +694,8 @@ function queueSendFormJob(formData) {
     rows: rowsToProcess,
     attemptedRows: selectedRows,
     preflightFailures: preflightFailures,
-    preparedScheduledRows: preparedRows
+    preparedScheduledRows: preparedRows,
+    trackTemplateStatus: trackTemplateStatus
   };
 
   let result;
@@ -923,6 +921,11 @@ function processOneQueuedJob_(job) {
   if (job.action === "send_now") {
     const templateSheet = ss.getSheetByName("Templates");
     if (!templateSheet) throw new Error("Missing Templates sheet.");
+    const hasTrackingFlag = Object.prototype.hasOwnProperty.call(job, "trackTemplateStatus");
+    const trackingOptions = {
+      enabled: hasTrackingFlag ? job.trackTemplateStatus === true : true,
+      allowLegacyCreate: !hasTrackingFlag
+    };
     rows.forEach(row => {
       let result;
       try {
@@ -933,7 +936,8 @@ function processOneQueuedJob_(job) {
           headers,
           job.template,
           job.sender,
-          recipientConfig
+          recipientConfig,
+          trackingOptions
         );
       } catch (err) {
         result = { status: "failed", row: row, error: err.message || String(err) };
@@ -1056,15 +1060,10 @@ function processOneQueuedJob_(job) {
 function markSchedulingRowsStarted_(sheet, headers, rows, templateKey) {
   if (!rows.length) return;
 
-  const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey, true);
-  const statusCol = headers["status"];
+  const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey);
+  if (!statusHeaderCol) throw new Error("Template tracking column is missing.");
   const templateRanges = rows.map(row => sheet.getRange(row, statusHeaderCol).getA1Notation());
   sheet.getRangeList(templateRanges).setValue("Scheduling...");
-
-  if (statusCol) {
-    const statusRanges = rows.map(row => sheet.getRange(row, statusCol).getA1Notation());
-    sheet.getRangeList(statusRanges).setValue("Scheduling...");
-  }
 
   SpreadsheetApp.flush();
 }
@@ -1075,9 +1074,9 @@ function shortenTrackerError_(message) {
 }
 
 function markScheduledRowError_(sheet, headers, row, templateKey, message) {
-  const templateCol = getTemplateStatusColumn_(headers, templateKey, true);
+  const templateCol = getTemplateStatusColumn_(headers, templateKey);
+  if (!templateCol) return;
   sheet.getRange(row, templateCol).setValue("Error: " + shortenTrackerError_(message));
-  if (headers["status"]) sheet.getRange(row, headers["status"]).setValue("Failed");
 }
 
 function markSchedulingRequestError_(sheet, headers, rows, templateKey, message) {
@@ -1217,9 +1216,9 @@ function setupJobProcessorTrigger() {
 // Immediate send
 // =============================================================================
 
-function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientConfig) {
-  const statusCol = headers["status"];
+function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientConfig, trackingOptions) {
   const templateSheet = ss.getSheetByName("Templates");
+  const tracking = trackingOptions || { enabled: true, allowLegacyCreate: true };
 
   let recipients = {
     to: "",
@@ -1232,9 +1231,15 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
   const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
 
   try {
-    const templateStatusCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey, true);
-    sheet.getRange(row, templateStatusCol).setValue("Sending...");
-    setStatus_(sheet, row, statusCol, "Sending...");
+    let templateStatusCol = null;
+    if (tracking.enabled) {
+      templateStatusCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey);
+      if (!templateStatusCol && tracking.allowLegacyCreate) {
+        templateStatusCol = ensureTrackerColumnForTemplate_(templateKey);
+      }
+      if (!templateStatusCol) throw new Error("Template tracking column is missing.");
+      sheet.getRange(row, templateStatusCol).setValue("Sending...");
+    }
 
     recipients = resolveRecipientsForRow_(
       sheet,
@@ -1268,8 +1273,7 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
       name: payload.senderName
     });
 
-    stampTemplateColumn_(sheet, row, getHeaders_(sheet), templateKey);
-    setStatus_(sheet, row, statusCol, "Sent");
+    stampTemplateColumn_(sheet, row, getHeaders_(sheet), templateKey, tracking.enabled);
 
     logSentEmail_(ss, {
       name,
@@ -1290,8 +1294,7 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
 
   } catch (err) {
     try {
-      stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey);
-      setStatus_(sheet, row, statusCol, "Failed");
+      stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey, tracking.enabled);
 
       logSentEmail_(ss, {
         name,
@@ -1369,7 +1372,6 @@ function scheduleOneRow_(
   recipientConfig,
   preparedRow
 ) {
-  const statusCol = headers["status"];
   let queueRowWritten = false;
   let queueRow = 0;
 
@@ -1386,7 +1388,7 @@ function scheduleOneRow_(
     if (!prepared || !prepared.recordIdHeader || !prepared.recordIdValue) {
       throw new Error("Scheduled row is missing its prepared source-record identity.");
     }
-    const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey, false);
+    const statusHeaderCol = getTemplateStatusColumn_(headers, templateKey);
     if (!statusHeaderCol) throw new Error("Template tracker column could not be verified.");
     const recipients = prepared.recipients;
     if (!recipients || !recipients.to) throw new Error("Scheduled row is missing Recipient.");
@@ -1420,7 +1422,6 @@ function scheduleOneRow_(
       "M/d"
     );
     sheet.getRange(row, statusHeaderCol).setValue("Scheduled for " + visibleScheduledDate);
-    if (statusCol) sheet.getRange(row, statusCol).setValue("Scheduled");
     return { status: "scheduled", row: row, error: "" };
   } catch (err) {
     if (queueRowWritten) {
@@ -1536,7 +1537,7 @@ function resolveScheduledSourceRecord_(ss, metadata, templateKey, cache) {
     };
   }
   const sourceRow = matches[0];
-  const sourceCol = getTemplateStatusColumn_(currentHeaders, templateKey, false);
+  const sourceCol = getTemplateStatusColumn_(currentHeaders, templateKey);
   if (!sourceCol) {
     return { state: "orphaned", reason: "template-specific source status column no longer exists" };
   }
@@ -1560,7 +1561,6 @@ function updateScheduledSourceTracker_(resolution, templateKey, outcome, message
   const trackerHeaders = resolution.headers;
   if (outcome === "Sent") {
     stampTemplateColumn_(sourceSheet, sourceRow, trackerHeaders, templateKey);
-    setStatus_(sourceSheet, sourceRow, trackerHeaders["status"], "Sent");
   } else {
     markScheduledRowError_(sourceSheet, trackerHeaders, sourceRow, templateKey, message);
   }

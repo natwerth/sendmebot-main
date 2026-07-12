@@ -423,39 +423,11 @@ function getTrackerHeaderForTemplate_(templateKey) {
 }
 
 
-function getTemplateStatusColumn_(headers, key, allowCreate) {
+function getTemplateStatusColumn_(headers, key) {
   const header = getTrackerHeaderForTemplate_(key);
   const normalizedHeader = normalize_(header);
 
-  if (headers[normalizedHeader]) return headers[normalizedHeader];
-
-  if (!allowCreate) return null;
-
-  return ensureTrackerColumnForTemplate_(key);
-}
-
-
-function getTemplateStatusColumns_(headers) {
-  return Object.keys(headers)
-    .filter(headerName =>
-      headerName.endsWith(" sent") ||
-      headerName.endsWith(" email")
-    )
-    .map(headerName => ({
-      headerName,
-      col: headers[headerName]
-    }));
-}
-
-
-function setTemplateProgressForRows_(sheet, rows, headers, templateKey, message) {
-  const col = getTemplateStatusColumn_(headers, templateKey, true);
-
-  rows.forEach(row => {
-    sheet.getRange(row, col).setValue(message);
-  });
-
-  SpreadsheetApp.flush();
+  return headers[normalizedHeader] || null;
 }
 
 

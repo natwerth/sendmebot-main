@@ -258,19 +258,23 @@ test("SendForm bootstrap exposes current sender but not another user's row", () 
     getTrackerSheet_: () => tracker,
     getHeaders_: () => ({ select: 1 }),
     getSelectedRows_: () => [2, 3, 4, 5],
-    getTemplateKeys_: () => ["Welcome"],
+    getTemplateKeys_: () => ["Welcome", "Existing"],
+    getTemplateStatusColumn_: (headers, key) => key === "Existing" ? 4 : null,
     getRecipientFieldsForSendForm_: () => [{ header: "Email", label: "Email" }]
   });
   vm.runInContext(emailsSource, sandbox, { filename: "Emails.js" });
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getHeaders_ = () => ({ select: 1 });
   sandbox.getSelectedRows_ = () => [2, 3, 4, 5];
-  sandbox.getTemplateKeys_ = () => ["Welcome"];
+  sandbox.getTemplateKeys_ = () => ["Welcome", "Existing"];
+  sandbox.getTemplateStatusColumn_ = (headers, key) => key === "Existing" ? 4 : null;
   sandbox.getRecipientFieldsForSendForm_ = () => [{ header: "Email", label: "Email" }];
   const context = sandbox.getSendFormOpenContext_("schedule");
   assert.equal(context.authenticatedEmail, "owner@akamai.com");
   assert.equal(context.senderState.record.name, "Owner Name");
   assert.equal(context.selectedRowCount, 4);
+  assert.equal(context.templateTracking.Welcome, false);
+  assert.equal(context.templateTracking.Existing, true);
   assert.equal(JSON.stringify(context).includes("other@akamai.com"), false);
 });
 
@@ -306,6 +310,135 @@ test("duplicate or failed trigger creation blocks safely", () => {
   }), /could not be authorized or enabled/);
 });
 
+test("immediate sending does not create a missing tracking column unless opted in", () => {
+  function run(createTrackingColumn) {
+    const tracker = {};
+    const spreadsheet = { getSheetByName() { return {}; } };
+    const sandbox = loadEmailsSandbox({
+      SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {} }
+    });
+    let columnExists = false;
+    let createCalls = 0;
+    let savedJob = null;
+    sandbox.getTrackerSheet_ = () => tracker;
+    sandbox.getHeaders_ = () => ({ select: 1 });
+    sandbox.getSelectedRows_ = () => [2];
+    sandbox.getTemplateStatusColumn_ = () => columnExists ? 4 : null;
+    sandbox.ensureTrackerColumnForTemplate_ = () => {
+      createCalls++;
+      columnExists = true;
+      return 4;
+    };
+    sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+    sandbox.saveQueuedJob_ = job => { savedJob = job; };
+    sandbox.processQueuedJobs_ = () => ({
+      attempted: 1, successful: 1, sent: 1, scheduled: 0, failed: 0,
+      successfulRows: [2], failedRows: [], errors: [], skipped: 0, locked: false
+    });
+    sandbox.queueSendFormJob({
+      action: "send_now", template: "Welcome",
+      toField: { value: "Email", valueType: "field" },
+      createTrackingColumn
+    });
+    return { createCalls, savedJob };
+  }
+
+  const untracked = run(false);
+  assert.equal(untracked.createCalls, 0);
+  assert.equal(untracked.savedJob.trackTemplateStatus, false);
+
+  const tracked = run(true);
+  assert.equal(tracked.createCalls, 1);
+  assert.equal(tracked.savedJob.trackTemplateStatus, true);
+});
+
+test("scheduling requires an existing or explicitly requested tracking column", () => {
+  const tracker = {};
+  const spreadsheet = { getSheetByName() { return {}; } };
+  const sandbox = loadEmailsSandbox({
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {} }
+  });
+  let triggerCalls = 0;
+  sandbox.getTrackerSheet_ = () => tracker;
+  sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getSelectedRows_ = () => [2];
+  sandbox.getTemplateStatusColumn_ = () => null;
+  sandbox.ensureCurrentUserScheduledTrigger_ = () => { triggerCalls++; };
+  assert.throws(() => sandbox.queueSendFormJob({
+    action: "schedule", template: "Welcome",
+    toField: { value: "Email", valueType: "field" },
+    scheduledForIso: "2099-01-01T14:00:00.000Z",
+    scheduledTimeZone: "America/Chicago",
+    scheduledDisplayText: "Jan 1, 2099, 8:00 AM CST",
+    createTrackingColumn: false
+  }), /Create a tracking column/);
+  assert.equal(triggerCalls, 0);
+});
+
+test("scheduled opt-in creates one tracking column before trigger readiness", () => {
+  const tracker = {};
+  const spreadsheet = { getSheetByName() { return {}; } };
+  const sandbox = loadEmailsSandbox({
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush() {} }
+  });
+  let columnExists = false;
+  let createCalls = 0;
+  let triggerSawColumn = false;
+  sandbox.getTrackerSheet_ = () => tracker;
+  sandbox.getHeaders_ = () => ({ select: 1, "student name": 2 });
+  sandbox.getSelectedRows_ = () => [2];
+  sandbox.getTemplateStatusColumn_ = () => columnExists ? 4 : null;
+  sandbox.ensureTrackerColumnForTemplate_ = () => {
+    createCalls++;
+    columnExists = true;
+    return 4;
+  };
+  sandbox.markSchedulingRowsStarted_ = () => {};
+  sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
+  sandbox.prepareScheduledRows_ = () => ({
+    validRows: [2], failures: [], preparedRows: { 2: { recordIdValue: "Alice" } }
+  });
+  sandbox.ensureCurrentUserScheduledTrigger_ = () => {
+    triggerSawColumn = columnExists;
+    return { status: "ready" };
+  };
+  sandbox.processSchedulingJobNow_ = () => ({
+    attempted: 1, successful: 1, sent: 0, scheduled: 1, failed: 0,
+    successfulRows: [2], failedRows: [], errors: [], skipped: 0, locked: false
+  });
+  const result = sandbox.queueSendFormJob({
+    action: "schedule", template: "Welcome",
+    toField: { value: "Email", valueType: "field" },
+    scheduledForIso: "2099-01-01T14:00:00.000Z",
+    scheduledTimeZone: "America/Chicago",
+    scheduledDisplayText: "Jan 1, 2099, 8:00 AM CST",
+    createTrackingColumn: true
+  });
+  assert.equal(createCalls, 1);
+  assert.equal(triggerSawColumn, true);
+  assert.equal(result.scheduled, 1);
+});
+
+test("tracking-column creation failure prevents request processing", () => {
+  const sandbox = loadEmailsSandbox({
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({}), flush() {} }
+  });
+  let processed = 0;
+  sandbox.getTrackerSheet_ = () => ({});
+  sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getSelectedRows_ = () => [2];
+  sandbox.getTemplateStatusColumn_ = () => null;
+  sandbox.ensureTrackerColumnForTemplate_ = () => { throw new Error("column write failed"); };
+  sandbox.saveQueuedJob_ = () => { processed++; };
+  assert.throws(() => sandbox.queueSendFormJob({
+    action: "send_now", template: "Welcome",
+    toField: { value: "Email", valueType: "field" },
+    createTrackingColumn: true
+  }), /column write failed/);
+  assert.equal(processed, 0);
+});
+
 test("trigger setup failure follows early tracker feedback but leaves selections intact", () => {
   const tracker = {};
   const spreadsheet = { getSheetByName() { return {}; } };
@@ -316,6 +449,7 @@ test("trigger setup failure follows early tracker feedback but leaves selections
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getHeaders_ = () => ({ select: 1, status: 2, "student name": 3 });
   sandbox.getSelectedRows_ = () => [2];
+  sandbox.getTemplateStatusColumn_ = () => 4;
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
   sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
   sandbox.prepareScheduledRows_ = () => ({
@@ -378,7 +512,6 @@ test("Scheduling status is batch-written and flushed by the early feedback helpe
 
   assert.deepEqual(events, [
     { type: "batch", ranges: ["R2C2", "R5C2"], value: "Scheduling..." },
-    { type: "batch", ranges: ["R2C1", "R5C1"], value: "Scheduling..." },
     { type: "flush" }
   ]);
 });
@@ -477,6 +610,33 @@ test("row-level immediate and scheduled attempts all clear their selections", ()
   assert.equal(scheduled.failed, 1);
 });
 
+test("untracked immediate send never looks up or creates a tracking column", () => {
+  const sends = [];
+  const sheet = {};
+  const spreadsheet = { getSheetByName() { return {}; } };
+  const sandbox = loadEmailsSandbox({ MailApp: { sendEmail: message => sends.push(message) } });
+  sandbox.getHeaders_ = () => ({});
+  sandbox.getTemplateStatusColumn_ = () => { throw new Error("tracking lookup must not run"); };
+  sandbox.ensureTrackerColumnForTemplate_ = () => { throw new Error("tracking creation must not run"); };
+  sandbox.getRecipientNameForRow_ = () => "Recipient";
+  sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
+  sandbox.getTemplateByKey_ = () => ({});
+  sandbox.buildEmailPayload_ = () => ({
+    subject: "Subject", plainBody: "Body", htmlBody: "<p>Body</p>",
+    inlineImages: {}, attachments: [], attachmentNames: "", senderName: "Owner"
+  });
+  sandbox.getAuthenticatedUserEmail_ = () => "owner@akamai.com";
+  sandbox.stampTemplateColumn_ = (s, r, h, k, enabled) => assert.equal(enabled, false);
+  sandbox.stampTemplateFailure_ = (s, r, h, k, enabled) => assert.equal(enabled, false);
+  sandbox.logSentEmail_ = () => {};
+  const result = sandbox.sendOneRowNow_(
+    spreadsheet, sheet, 2, {}, "Welcome", "owner@akamai.com", {},
+    { enabled: false, allowLegacyCreate: false }
+  );
+  assert.equal(result.status, "sent");
+  assert.equal(sends.length, 1);
+});
+
 test("sender authority is revalidated immediately before MailApp", () => {
   const sends = [];
   const sheet = { getRange() { return { setValue() {} }; } };
@@ -484,7 +644,6 @@ test("sender authority is revalidated immediately before MailApp", () => {
   const sandbox = loadEmailsSandbox({ MailApp: { sendEmail: message => sends.push(message) } });
   sandbox.getTemplateStatusColumn_ = () => 2;
   sandbox.getHeaders_ = () => ({ status: 1 });
-  sandbox.setStatus_ = () => {};
   sandbox.getRecipientNameForRow_ = () => "Recipient";
   sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
   sandbox.getTemplateByKey_ = () => ({});
@@ -506,7 +665,14 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
   const script = formSource.match(/<script>([\s\S]*?)<\/script>/)[1]
     .replace("const context = <?!= contextJson ?>;", "const context = {};")
     .replace(/\s*initializeForm\(\);\s*$/, "");
-  const sandbox = { Date, Intl, console, setTimeout() {}, google: {}, document: {} };
+  const elements = {
+    template: { value: "Welcome" },
+    createTrackingColumn: { checked: false }
+  };
+  const sandbox = {
+    Date, Intl, console, setTimeout() {}, google: {},
+    document: { getElementById(id) { return elements[id] || { checked: false }; } }
+  };
   vm.createContext(sandbox);
   vm.runInContext(script, sandbox, { filename: "SendForm.html" });
   assert.equal(sandbox.getActionButtonText("send_now", 1, false), "Send 1 Email");
@@ -521,7 +687,16 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
   assert.equal(sandbox.canSubmit(), false);
   vm.runInContext(
     'context.actionMode="schedule"; context.senderState={status:"ready"}; ' +
-    'context.triggerState={status:"duplicate"}; selectedRowCount=1;',
+    'context.triggerState={status:"ready"}; context.templateTracking={Welcome:false}; selectedRowCount=1;',
+    sandbox
+  );
+  elements.createTrackingColumn.checked = false;
+  assert.equal(sandbox.canSubmit(), false);
+  elements.createTrackingColumn.checked = true;
+  assert.equal(sandbox.canSubmit(), true);
+  vm.runInContext(
+    'context.actionMode="schedule"; context.senderState={status:"ready"}; ' +
+    'context.triggerState={status:"duplicate"}; context.templateTracking={Welcome:true}; selectedRowCount=1;',
     sandbox
   );
   assert.equal(sandbox.canSubmit(), false);
@@ -533,6 +708,8 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
   assert.doesNotMatch(formSource, /<select id="sender">/);
   assert.doesNotMatch(formSource, /button-loading-sweep|@keyframes/);
   assert.doesNotMatch(formSource, /id="senderDisplaySignature"/);
+  assert.match(formSource, /id="createTrackingColumn" type="checkbox"/);
+  assert.match(script, /createTrackingColumn:\s*document\.getElementById/);
   assert.ok(
     script.indexOf('setSubmitButtonState(\n          "working"') <
     script.indexOf(".queueSendFormJob(formData)")
@@ -545,6 +722,12 @@ test("repository contains no GmailApp and tests never use live triggers or real 
     .join("\n");
   assert.equal(projectSource.includes("GmailApp"), false);
   assert.equal(projectSource.includes("send as another user"), false);
+  assert.doesNotMatch(dataSource, /function setStatus_/);
+  const trackerProgressSource = emailsSource.slice(
+    emailsSource.indexOf("function markSchedulingRowsStarted_"),
+    emailsSource.indexOf("function getCurrentUserScheduledTriggerState_")
+  );
+  assert.doesNotMatch(trackerProgressSource, /headers\["status"\]/);
 
   const addSenderScript = addSenderSource.match(/<script>([\s\S]*?)<\/script>/)[1]
     .replace("const context = <?!= contextJson ?>;", "const context = { imageAssets: [] };")

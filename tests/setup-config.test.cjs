@@ -8,6 +8,8 @@ const vm = require("node:vm");
 const ROOT = path.join(__dirname, "..");
 const codeSource = fs.readFileSync(path.join(ROOT, "Code.js"), "utf8");
 const setupSource = fs.readFileSync(path.join(ROOT, "SetupForm.html"), "utf8");
+const modalSource = fs.readFileSync(path.join(ROOT, "Modal.html"), "utf8");
+const modalFiles = ["AddImage.html", "AddSender.html", "SendForm.html", "SetupForm.html", "TemplateForm.html"];
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
@@ -19,11 +21,11 @@ function makeEnvironment(initialProperties) {
   };
   const tracker = {
     getName() { return "Tracker"; },
-    getLastColumn() { return 4; },
+    getLastColumn() { return 3; },
     getRange() {
       return {
-        getDisplayValues() { return [["Select", "Student Name", "Email", "Status"]]; },
-        getValues() { return [["Select", "Student Name", "Email", "Status"]]; }
+        getDisplayValues() { return [["Select", "Student Name", "Email"]]; },
+        getValues() { return [["Select", "Student Name", "Email"]]; }
       };
     }
   };
@@ -39,13 +41,13 @@ function makeEnvironment(initialProperties) {
     LockService: { getDocumentLock: () => lock },
     normalize_: value => String(value || "").trim().toLowerCase(),
     getHeaders_() {
-      return { select: 1, "student name": 2, email: 3, status: 4 };
+      return { select: 1, "student name": 2, email: 3 };
     }
   };
   vm.createContext(sandbox);
   vm.runInContext(codeSource, sandbox, { filename: "Code.js" });
   sandbox.normalize_ = value => String(value || "").trim().toLowerCase();
-  sandbox.getHeaders_ = () => ({ select: 1, "student name": 2, email: 3, status: 4 });
+  sandbox.getHeaders_ = () => ({ select: 1, "student name": 2, email: 3 });
   return { sandbox, values, spreadsheet };
 }
 
@@ -68,6 +70,15 @@ test("Setup saves shared tracker and record-ID choices", () => {
   assert.equal(sandbox.getTrackerSheet_().getName(), "Tracker");
 });
 
+test("Setup does not require a general Status column", () => {
+  const { sandbox } = makeEnvironment();
+  assert.doesNotThrow(() => sandbox.saveSendMeBotSetup({
+    trackerSheetName: "Tracker",
+    recordIdHeader: "Student Name"
+  }));
+  assert.doesNotMatch(codeSource, /missing the \"Status\" column/);
+});
+
 test("Setup rejects missing required Tracker columns", () => {
   const { sandbox } = makeEnvironment();
   sandbox.getHeaders_ = () => ({ "student name": 2, status: 4 });
@@ -82,6 +93,8 @@ test("Setup dialog exposes sheet and record-ID selectors without named ranges", 
   assert.match(setupSource, /id="recordIdHeader"/);
   assert.match(codeSource, /\.addItem\("Setup", "openSetupForm"\)/);
   assert.doesNotMatch(codeSource + setupSource, /setNamedRange|getRangeByName/);
+  assert.match(setupSource, /includeHtml_\("Modal"\)/);
+  assert.match(modalSource, /window\.SendMeBotModal/);
   const script = setupSource.match(/<script>([\s\S]*?)<\/script>/)[1]
     .replace("const context = <?!= contextJson ?>;", "const context = {config:{},sheets:[]};")
     .replace(/\s*renderHeaders\(\);\s*$/, "");
@@ -93,6 +106,30 @@ test("Setup dialog exposes sheet and record-ID selectors without named ranges", 
   };
   vm.createContext(sandbox);
   vm.runInContext(script, sandbox, { filename: "SetupForm.html" });
+});
+
+test("modal dialogs use the shared include and its utilities are syntactically valid", () => {
+  modalFiles.forEach(file => {
+    const source = fs.readFileSync(path.join(ROOT, file), "utf8");
+    assert.match(source, /includeHtml_\("Modal"\)/, file);
+    const mainScript = source.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(mainScript, file + " main script");
+    assert.doesNotThrow(() => new vm.Script(
+      mainScript[1].replace(/<\?!=[\s\S]*?\?>/g, "null"),
+      { filename: file }
+    ));
+  });
+  assert.match(codeSource, /createTemplateFromFile\("AddImage"\)[\s\S]*?\.evaluate\(\)/);
+  assert.match(codeSource, /function includeHtml_\(filename\)/);
+  const script = modalSource.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const sandbox = { window: {}, document: { getElementById() { return null; } } };
+  vm.createContext(sandbox);
+  vm.runInContext(script, sandbox, { filename: "Modal.html" });
+  assert.equal(sandbox.window.SendMeBotModal.errorText({}, "Fallback"), "Fallback");
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(ROOT, "AssistantSidebar.html"), "utf8"),
+    /includeHtml_\("Modal"\)/
+  );
 });
 
 let failures = 0;
