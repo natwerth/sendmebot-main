@@ -581,6 +581,7 @@
         const container = document.getElementById(containerId);
         const fields = context.recipientFields || [];
         const authorizedSenders = context.authorizedSenders || [];
+        const authenticatedEmail = String(context.authenticatedEmail || "").trim().toLowerCase();
         container.innerHTML = "";
 
         if (!fields.length && !context.authenticatedEmail && !authorizedSenders.length) {
@@ -626,7 +627,7 @@
 
         authorizedSenders.forEach(function(sender) {
           const email = String(sender.email || "").trim();
-          if (!email) return;
+          if (!email || email.toLowerCase() === authenticatedEmail) return;
 
           const chip = document.createElement("button");
           chip.type = "button";

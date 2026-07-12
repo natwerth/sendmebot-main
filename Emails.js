@@ -456,11 +456,10 @@ function parseEmailList_(value) {
 
 
 function dedupeRecipientGroups_(to, cc, bcc) {
-  const seen = {};
-
-  const cleanTo = dedupeEmails_(to, seen);
-  const cleanCc = dedupeEmails_(cc, seen);
-  const cleanBcc = dedupeEmails_(bcc, seen);
+  const cleanTo = dedupeEmails_(to, {});
+  const copySeen = {};
+  const cleanCc = dedupeEmails_(cc, copySeen);
+  const cleanBcc = dedupeEmails_(bcc, copySeen);
 
   return {
     to: cleanTo.join(","),

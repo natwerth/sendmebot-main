@@ -734,7 +734,7 @@ test("Me is the default To recipient and authorized senders render in CC and BCC
     'context.authenticatedEmail="owner@akamai.com";' +
     'context.recipientFields=[{header:"Email",label:"Tracker recipient"}];' +
     'context.authorizedSenders=[' +
-      '{name:"Owner Name",email:"owner@akamai.com"},' +
+      '{name:"Owner Name",email:"OWNER@AKAMAI.COM"},' +
       '{name:"",email:"other@akamai.com"}' +
     '];',
     sandbox
@@ -754,16 +754,17 @@ test("Me is the default To recipient and authorized senders render in CC and BCC
 
   [elements.ccChips, elements.bccChips].forEach(container => {
     assert.deepEqual(container.children.map(chip => chip.textContent), [
-      "Tracker recipient", "Me", "Owner Name", "other@akamai.com"
+      "Tracker recipient", "Me", "other@akamai.com"
     ]);
     assert.equal(container.children.some(chip => chip.textContent === "Sender"), false);
     assert.equal(container.children.some(chip => chip.classList.contains("active")), false);
-    assert.equal(container.children[2].dataset.value, "owner@akamai.com");
+    assert.equal(container.children.some(chip => chip.textContent === "Owner Name"), false);
+    assert.equal(container.children[2].dataset.value, "other@akamai.com");
     assert.equal(container.children[2].dataset.valueType, "email");
   });
 });
 
-test("authorized sender items use the existing CC and BCC payload format", () => {
+test("recipient addresses can also remain in CC or BCC while copy groups stay deduplicated", () => {
   const sandbox = loadEmailsSandbox();
   const sheet = {
     getRange() {
@@ -773,13 +774,28 @@ test("authorized sender items use the existing CC and BCC payload format", () =>
   const recipients = sandbox.resolveRecipientsForRow_(sheet, 2, { email: 1 }, {
     sender: "owner@akamai.com",
     toField: { value: "Email", valueType: "field" },
-    ccFields: [{ value: "cc-sender@akamai.com", valueType: "email" }],
-    bccFields: [{ value: "bcc-sender@akamai.com", valueType: "email" }]
+    ccFields: [{ value: "recipient@example.com", valueType: "email" }],
+    bccFields: [
+      { value: "recipient@example.com", valueType: "email" },
+      { value: "bcc-sender@akamai.com", valueType: "email" }
+    ]
   });
   assert.deepEqual(JSON.parse(JSON.stringify(recipients)), {
     to: "recipient@example.com",
-    cc: "cc-sender@akamai.com",
+    cc: "recipient@example.com",
     bcc: "bcc-sender@akamai.com"
+  });
+
+  const bccRecipients = sandbox.resolveRecipientsForRow_(sheet, 2, { email: 1 }, {
+    sender: "owner@akamai.com",
+    toField: { value: "Email", valueType: "field" },
+    ccFields: [],
+    bccFields: [{ value: "recipient@example.com", valueType: "email" }]
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(bccRecipients)), {
+    to: "recipient@example.com",
+    cc: "",
+    bcc: "recipient@example.com"
   });
 });
 
