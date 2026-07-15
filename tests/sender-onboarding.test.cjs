@@ -632,12 +632,19 @@ test("row-level immediate and scheduled attempts all clear their selections", ()
   const cleared = [];
   sandbox.getTrackerSheet_ = () => tracker;
   sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
   sandbox.clearSelectedRow_ = (sheet, headers, row) => cleared.push(row);
-  sandbox.sendOneRowNow_ = (ss, sheet, row) => ({
-    status: row === 2 ? "sent" : "failed",
-    row,
-    error: row === 2 ? "" : "fake failure"
-  });
+  const immediateRecordIdHeaders = [];
+  sandbox.sendOneRowNow_ = (
+    ss, sheet, row, headers, template, sender, recipients, recordIdHeader
+  ) => {
+    immediateRecordIdHeaders.push(recordIdHeader);
+    return {
+      status: row === 2 ? "sent" : "failed",
+      row,
+      error: row === 2 ? "" : "fake failure"
+    };
+  };
 
   const immediate = sandbox.processOneQueuedJob_({
     action: "send_now", rows: [2, 3, 6], attemptedRows: [2, 3, 6],
@@ -648,6 +655,7 @@ test("row-level immediate and scheduled attempts all clear their selections", ()
   assert.equal(immediate.failed, 2);
   assert.deepEqual(Array.from(immediate.successfulRows), [2]);
   assert.deepEqual(Array.from(immediate.failedRows), [3, 6]);
+  assert.deepEqual(immediateRecordIdHeaders, ["Student Name", "Student Name", "Student Name"]);
 
   cleared.length = 0;
   sandbox.scheduleOneRow_ = (ss, sheet, row) => ({
@@ -668,13 +676,16 @@ test("row-level immediate and scheduled attempts all clear their selections", ()
 
 test("untracked immediate send never looks up or creates a tracking column", () => {
   const sends = [];
-  const sheet = {};
+  const sheet = {
+    getRange() {
+      return { getDisplayValue: () => "Alice Student", setValue() {} };
+    }
+  };
   const spreadsheet = { getSheetByName() { return {}; } };
   const sandbox = loadEmailsSandbox({ MailApp: { sendEmail: message => sends.push(message) } });
-  sandbox.getHeaders_ = () => ({});
+  sandbox.getHeaders_ = () => ({ "student name": 1 });
   sandbox.getTemplateStatusColumn_ = () => { throw new Error("tracking lookup must not run"); };
   sandbox.ensureTrackerColumnForTemplate_ = () => { throw new Error("tracking creation must not run"); };
-  sandbox.getRecipientNameForRow_ = () => "Recipient";
   sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
   sandbox.getTemplateByKey_ = () => ({});
   sandbox.buildEmailPayload_ = () => ({
@@ -686,7 +697,8 @@ test("untracked immediate send never looks up or creates a tracking column", () 
   sandbox.stampTemplateFailure_ = (s, r, h, k, enabled) => assert.equal(enabled, false);
   sandbox.logSentEmail_ = () => {};
   const result = sandbox.sendOneRowNow_(
-    spreadsheet, sheet, 2, {}, "Welcome", "owner@akamai.com", {},
+    spreadsheet, sheet, 2, { "student name": 1 }, "Welcome", "owner@akamai.com", {},
+    "Student Name",
     { enabled: false, allowLegacyCreate: false }
   );
   assert.equal(result.status, "sent");
@@ -695,12 +707,15 @@ test("untracked immediate send never looks up or creates a tracking column", () 
 
 test("sender authority is revalidated immediately before MailApp", () => {
   const sends = [];
-  const sheet = { getRange() { return { setValue() {} }; } };
+  const sheet = {
+    getRange() {
+      return { getDisplayValue: () => "Alice Student", setValue() {} };
+    }
+  };
   const spreadsheet = { getSheetByName() { return {}; } };
   const sandbox = loadEmailsSandbox({ MailApp: { sendEmail: message => sends.push(message) } });
   sandbox.getTemplateStatusColumn_ = () => 2;
-  sandbox.getHeaders_ = () => ({ status: 1 });
-  sandbox.getRecipientNameForRow_ = () => "Recipient";
+  sandbox.getHeaders_ = () => ({ status: 1, "student name": 2 });
   sandbox.resolveRecipientsForRow_ = () => ({ to: "recipient@example.com", cc: "", bcc: "" });
   sandbox.getTemplateByKey_ = () => ({});
   sandbox.buildEmailPayload_ = () => ({
@@ -711,7 +726,8 @@ test("sender authority is revalidated immediately before MailApp", () => {
   sandbox.logSentEmail_ = () => {};
   sandbox.getAuthenticatedUserEmail_ = () => "other@akamai.com";
   const result = sandbox.sendOneRowNow_(
-    spreadsheet, sheet, 2, { status: 1 }, "Welcome", "owner@akamai.com", {}
+    spreadsheet, sheet, 2, { status: 1, "student name": 2 },
+    "Welcome", "owner@akamai.com", {}, "Student Name"
   );
   assert.equal(result.status, "failed");
   assert.equal(sends.length, 0);

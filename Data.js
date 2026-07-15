@@ -513,7 +513,7 @@ function logSentEmail_(ss, logData) {
     "Scheduled For": logData.scheduledFor || "",
     "Processed At": logData.processedAt || "",
     "Message": logData.message || "",
-    "Name": logData.name || "",
+    "Record ID": logData.recordId || "",
     "Recipient": logData.email || "",
     "Sender": logData.sender || "",
     "CC": logData.cc || "",
@@ -545,7 +545,7 @@ function ensureLogHeaders_(logSheet) {
     "Scheduled For",
     "Processed At",
     "Message",
-    "Name",
+    "Record ID",
     "Recipient",
     "Sender",
     "CC",
@@ -572,6 +572,13 @@ function ensureLogHeaders_(logSheet) {
     logSheet.getRange(1, existingHeaders["email"]).setValue("Recipient");
     existingHeaders["recipient"] = existingHeaders["email"];
     delete existingHeaders["email"];
+  }
+
+  // Rename the legacy Sent identity header in place without disturbing data.
+  if (existingHeaders["name"] && !existingHeaders["record id"]) {
+    logSheet.getRange(1, existingHeaders["name"]).setValue("Record ID");
+    existingHeaders["record id"] = existingHeaders["name"];
+    delete existingHeaders["name"];
   }
 
   let nextCol = logSheet.getLastColumn();

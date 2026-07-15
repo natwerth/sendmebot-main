@@ -389,57 +389,6 @@ function getEmailValuesFromField_(sheet, row, headers, fieldName) {
   return parseEmailList_(value);
 }
 
-function getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig) {
-  const config = recipientConfig || {};
-  const toField = config.toField || { value: "Email", valueType: "field" };
-
-  if (toField.valueType === "selectedSender") {
-    const senderProfile = getSenderProfile_(ss, config.sender || "");
-    return senderProfile.name || config.sender || "";
-  }
-
-  if (toField.valueType === "email") {
-    return String(toField.value || "").trim();
-  }
-
-  const toHeader = String(toField.value || "").trim();
-  const normalizedToHeader = normalize_(toHeader);
-
-  const nameFieldMap = {
-    "student personal email": "Student Name",
-    "student email": "Student Name",
-    "email": "Student Name",
-
-    "manager email": "Hiring Manager",
-    "hiring manager email": "Hiring Manager",
-
-    "mentor email": "Mentor"
-  };
-
-  const mappedNameField = nameFieldMap[normalizedToHeader];
-
-  if (mappedNameField) {
-    const mappedName = getCellValue_(sheet, row, headers, mappedNameField);
-    if (mappedName) return mappedName;
-  }
-
-  const fallbackNameFields = [
-    "Student Name",
-    "Hiring Manager",
-    "Mentor",
-    "Name",
-    "Full Name",
-    "Candidate Name"
-  ];
-
-  for (let i = 0; i < fallbackNameFields.length; i++) {
-    const value = getCellValue_(sheet, row, headers, fallbackNameFields[i]);
-    if (value) return value;
-  }
-
-  return "";
-}
-
 function parseEmailList_(value) {
   return String(value || "")
     .split(/[,;\n]/)
@@ -538,8 +487,7 @@ function prepareScheduledRows_(ss, sheet, rows, headers, recipientConfig, record
       preparedRows[row] = {
         recordIdHeader: recordIdHeader,
         recordIdValue: recordIdValue,
-        recipients: recipients,
-        name: recordIdValue
+        recipients: recipients
       };
       validRows.push(row);
     } catch (err) {
@@ -919,6 +867,7 @@ function processOneQueuedJob_(job) {
   if (job.action === "send_now") {
     const templateSheet = ss.getSheetByName("Templates");
     if (!templateSheet) throw new Error("Missing Templates sheet.");
+    const config = getSendMeBotConfig_();
     const hasTrackingFlag = Object.prototype.hasOwnProperty.call(job, "trackTemplateStatus");
     const trackingOptions = {
       enabled: hasTrackingFlag ? job.trackTemplateStatus === true : true,
@@ -935,6 +884,7 @@ function processOneQueuedJob_(job) {
           job.template,
           job.sender,
           recipientConfig,
+          config.recordIdHeader,
           trackingOptions
         );
       } catch (err) {
@@ -1214,7 +1164,17 @@ function setupJobProcessorTrigger() {
 // Immediate send
 // =============================================================================
 
-function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientConfig, trackingOptions) {
+function sendOneRowNow_(
+  ss,
+  sheet,
+  row,
+  headers,
+  templateKey,
+  sender,
+  recipientConfig,
+  recordIdHeader,
+  trackingOptions
+) {
   const templateSheet = ss.getSheetByName("Templates");
   const tracking = trackingOptions || { enabled: true, allowLegacyCreate: true };
 
@@ -1225,10 +1185,18 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
   };
 
   let email = "";
-
-  const name = getRecipientNameForRow_(ss, sheet, row, headers, recipientConfig);
+  let recordId = "";
 
   try {
+    const recordIdCol = headers[normalize_(recordIdHeader)];
+    if (!recordIdCol) {
+      throw new Error(
+        'Record ID column "' + recordIdHeader + '" was not found. Open SendMeBot → Setup.'
+      );
+    }
+    recordId = String(sheet.getRange(row, recordIdCol).getDisplayValue() || "").trim();
+    if (!recordId) throw new Error('Record ID "' + recordIdHeader + '" is blank.');
+
     let templateStatusCol = null;
     if (tracking.enabled) {
       templateStatusCol = getTemplateStatusColumn_(getHeaders_(sheet), templateKey);
@@ -1274,7 +1242,7 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
     stampTemplateColumn_(sheet, row, getHeaders_(sheet), templateKey, tracking.enabled);
 
     logSentEmail_(ss, {
-      name,
+      recordId,
       email,
       cc: recipients.cc,
       bcc: recipients.bcc,
@@ -1295,7 +1263,7 @@ function sendOneRowNow_(ss, sheet, row, headers, templateKey, sender, recipientC
       stampTemplateFailure_(sheet, row, getHeaders_(sheet), templateKey, tracking.enabled);
 
       logSentEmail_(ss, {
-        name,
+        recordId,
         email,
         cc: recipients.cc,
         bcc: recipients.bcc,
@@ -1401,7 +1369,7 @@ function scheduleOneRow_(
       scheduledFor: new Date(scheduledDate.getTime()),
       processedAt: "",
       message: "Email scheduled for " + scheduledDisplayText + ".",
-      name: prepared.name,
+      recordId: prepared.recordIdValue,
       email: recipients.to,
       sender: sender,
       cc: recipients.cc,
@@ -1454,9 +1422,9 @@ function sendScheduledEmails() {
 }
 
 function getRequiredSentQueueHeaders_(sheet) {
-  const headers = getHeaders_(sheet);
+  const headers = ensureLogHeaders_(sheet);
   [
-    "status", "scheduled for", "processed at", "message", "recipient",
+    "status", "scheduled for", "processed at", "message", "record id", "recipient",
     "sender", "cc", "bcc", "template", "subject", "email body", "attachments", "log note"
   ].forEach(header => {
     if (!headers[header]) throw new Error("Missing Sent header: " + header + ".");
@@ -1489,6 +1457,24 @@ function updateSentQueueRow_(sheet, row, rowValues, headers, updates) {
     if (col) rowValues[col - 1] = updates[header];
   });
   sheet.getRange(row, 1, 1, rowValues.length).setValues([rowValues]);
+}
+
+function surfaceProcessedSentRow_(sheet, row, surfacedCount) {
+  const destinationRow = 2 + surfacedCount;
+  if (row <= destinationRow) return true;
+
+  try {
+    sheet.moveRows(
+      sheet.getRange(row, 1, 1, Math.max(sheet.getLastColumn(), 1)),
+      destinationRow
+    );
+    return true;
+  } catch (err) {
+    Logger.log(
+      "SCHEDULED ROW MOVE ERROR row " + row + ": " + (err.message || err)
+    );
+    return false;
+  }
 }
 
 function resolveScheduledSourceRecord_(ss, metadata, templateKey, cache) {
@@ -1600,7 +1586,7 @@ function validateLiveRenderingTokens_(template, senderProfile, rowData, imageAss
 
 function processScheduledEmails_(options) {
   const runtime = options || {};
-  const lock = runtime.lock || LockService.getScriptLock();
+  const lock = runtime.lock || LockService.getDocumentLock();
   const summary = {
     sent: 0,
     failed: 0,
@@ -1631,6 +1617,7 @@ function processScheduledEmails_(options) {
     const sendEmail = runtime.sendEmail || function(message) { MailApp.sendEmail(message); };
     const sourceLookupCache = {};
     let effectiveUser = "";
+    let surfacedCount = 0;
 
     try {
       effectiveUser = String(getEffectiveUserEmail() || "").trim();
@@ -1668,6 +1655,7 @@ function processScheduledEmails_(options) {
           "Log Note": invalidMessage
         });
         summary.failed++;
+        if (surfaceProcessedSentRow_(sentSheet, row, surfacedCount)) surfacedCount++;
         continue;
       }
 
@@ -1700,6 +1688,7 @@ function processScheduledEmails_(options) {
             "Log Note": orphanedMessage
           });
           summary.orphaned++;
+          if (surfaceProcessedSentRow_(sentSheet, row, surfacedCount)) surfacedCount++;
           continue;
         }
 
@@ -1713,6 +1702,7 @@ function processScheduledEmails_(options) {
             "Log Note": cancelledMessage
           });
           summary.cancelled++;
+          if (surfaceProcessedSentRow_(sentSheet, row, surfacedCount)) surfacedCount++;
           continue;
         }
 
@@ -1780,7 +1770,7 @@ function processScheduledEmails_(options) {
           "Status": "Sent",
           "Processed At": new Date(now.getTime()),
           "Message": successMessage,
-          "Name": metadata.recordIdValue,
+          "Record ID": metadata.recordIdValue,
           "Subject": payload.subject,
           "Email Body": payload.plainBody,
           "Attachments": payload.attachmentNames || "",
@@ -1796,6 +1786,7 @@ function processScheduledEmails_(options) {
           Logger.log("SCHEDULED TRACKER UPDATE ERROR row " + row + ": " + trackerErr.message);
         }
         summary.sent++;
+        if (surfaceProcessedSentRow_(sentSheet, row, surfacedCount)) surfacedCount++;
       } catch (err) {
         if (delivered) {
           Logger.log("SCHEDULED FINALIZATION ERROR row " + row + ": " + (err.message || err));
@@ -1828,8 +1819,15 @@ function processScheduledEmails_(options) {
         }
 
         summary.failed++;
+        if (surfaceProcessedSentRow_(sentSheet, row, surfacedCount)) surfacedCount++;
         Logger.log("SCHEDULED SEND ERROR row " + row + ": " + (err.message || err));
       }
+    }
+
+    try {
+      SpreadsheetApp.flush();
+    } catch (flushErr) {
+      Logger.log("SCHEDULED ROW MOVE FLUSH ERROR: " + (flushErr.message || flushErr));
     }
 
     return summary;
