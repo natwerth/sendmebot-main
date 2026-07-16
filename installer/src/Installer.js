@@ -66,6 +66,33 @@ function createNewSendMeBotWorkbook(e) {
 }
 
 
+function getInstallerDestinationName_(e, source) {
+  const requestedName = normalizeInstallerValue_(
+    getInstallerFormValue_(e, "destinationWorkbookName") ||
+    getInstallerFormValue_(e, "newWorkbookName")
+  );
+  return requestedName || source.getName() + " — SendMeBot";
+}
+
+
+function getAllInstallerSheetIds_(scan) {
+  return (scan && scan.sheets ? scan.sheets : []).map(sheet => String(sheet.sheetId));
+}
+
+
+function installEntireCurrentWorkbook(e) {
+  const source = getCurrentInstallerSpreadsheet_(e);
+  if (!source) return notifyInstaller_("Open the source spreadsheet and try again.");
+  const scan = scanWorkbookCompatibility_(source);
+  if (!scan.sheets.length) return notifyInstaller_("No worksheet tabs are available to copy.");
+  const accepted = getInstallerFormValues_(e, "acceptComplexMigration").indexOf("accepted") !== -1;
+  if (scan.warnings.length && !accepted) {
+    return buildEntireWorkbookWarningResponse_(e, source, scan);
+  }
+  return installCurrentWorkbookSheets_(e, source, getAllInstallerSheetIds_(scan));
+}
+
+
 function installIntoCurrentWorkbook(e) {
   const source = getCurrentInstallerSpreadsheet_(e);
   if (!source) return notifyInstaller_("Open the source spreadsheet and try again.");
@@ -76,10 +103,15 @@ function installIntoCurrentWorkbook(e) {
   if (scan.warnings.length && !accepted) {
     return notifyInstaller_("Review the compatibility warnings and confirm before continuing.");
   }
-  const requestedName = normalizeInstallerValue_(getInstallerFormValue_(e, "destinationWorkbookName"));
-  const destinationName = requestedName || source.getName() + " — SendMeBot";
+  return installCurrentWorkbookSheets_(e, source, selectedIds);
+}
 
-  return runInstallOperation_("migrate", source.getId(), destinationName, function() {
+
+function installCurrentWorkbookSheets_(e, source, selectedIds) {
+  const destinationName = getInstallerDestinationName_(e, source);
+  const operationKind = "migrate:" + selectedIds.map(String).sort().join(",");
+
+  return runInstallOperation_(operationKind, source.getId(), destinationName, function() {
     const destinationId = copySendMeBotTemplate_(destinationName);
     const url = "https://docs.google.com/spreadsheets/d/" + destinationId + "/edit";
     try {

@@ -72,6 +72,12 @@ assert.equal(sandbox.getSuggestedTrackerSheet_([
   { sourceName: "People", destinationName: "People", hasUsableHeaders: true }
 ]), "People");
 assert.equal(sandbox.getSuggestedTrackerSheet_([]), "Tracker");
+assert.deepEqual(
+  Array.from(sandbox.getAllInstallerSheetIds_({ sheets: [
+    { sheetId: 11 }, { sheetId: "22" }, { sheetId: 33 }
+  ] })),
+  ["11", "22", "33"]
+);
 
 let onboardingRows = [];
 const onboardingSheet = {
@@ -145,6 +151,30 @@ const legacyActionEvent = {
 };
 assert.equal(sandbox.getCurrentInstallerSpreadsheet_(legacyActionEvent).id, "legacy-action-id");
 
+const fullWorkbook = { getId: () => "full-id", getName: () => "Full workbook" };
+let fullInstallIds = [];
+sandbox.getCurrentInstallerSpreadsheet_ = () => fullWorkbook;
+sandbox.scanWorkbookCompatibility_ = () => ({
+  sheets: [{ sheetId: 1 }, { sheetId: 2 }, { sheetId: 3 }],
+  warnings: [],
+  notices: []
+});
+sandbox.installCurrentWorkbookSheets_ = (event, source, ids) => {
+  assert.equal(source, fullWorkbook);
+  fullInstallIds = Array.from(ids);
+  return "installed";
+};
+assert.equal(sandbox.installEntireCurrentWorkbook({}), "installed");
+assert.deepEqual(fullInstallIds, ["1", "2", "3"]);
+
+sandbox.scanWorkbookCompatibility_ = () => ({
+  sheets: [{ sheetId: 1 }],
+  warnings: ["Review this feature."],
+  notices: []
+});
+sandbox.buildEntireWorkbookWarningResponse_ = () => "review-card";
+assert.equal(sandbox.installEntireCurrentWorkbook({}), "review-card");
+
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "appsscript.json"), "utf8"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/script.projects"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/drive.file"));
@@ -158,6 +188,10 @@ assert.match(allSource, /destinationWorkbookName/);
 assert.match(allSource, /markSendMeBotOnboarding_/);
 assert.match(allSource, /setParameters\(migrationParameters\)/);
 assert.match(allSource, /commonEventObject && event\.commonEventObject\.parameters/);
+assert.match(allSource, /setFunctionName\("installEntireCurrentWorkbook"\)/);
+assert.match(allSource, /Choose which sheets to copy/);
+assert.match(allSource, /copy all worksheet tabs/i);
+assert.match(allSource, /buildEntireWorkbookWarningResponse_/);
 assert.match(allSource, /original spreadsheet will not be changed/i);
 assert.doesNotMatch(allSource, /getActiveSpreadsheet\s*\(/);
 assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);

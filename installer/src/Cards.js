@@ -41,15 +41,20 @@ function buildInstallerHomeCard_(e) {
     section
       .setHeader("Install SendMeBot into " + sourceName)
       .addWidget(CardService.newTextParagraph().setText(
-        "SendMeBot will create a new workbook and copy your selected sheets. The original will not be changed."
+        "SendMeBot will create a new workbook and copy all worksheet tabs. The original will not be changed."
       ))
       .addWidget(CardService.newTextInput()
         .setFieldName("newWorkbookName")
         .setTitle("Workbook name")
         .setValue(sourceName + " — SendMeBot"))
       .addWidget(CardService.newTextButton()
-        .setText("Choose sheets to install")
+        .setText("Install SendMeBot into " + sourceName)
         .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setOnClickAction(CardService.newAction()
+          .setFunctionName("installEntireCurrentWorkbook")
+          .setParameters(migrationParameters)))
+      .addWidget(CardService.newTextButton()
+        .setText("Choose which sheets to copy")
         .setOnClickAction(CardService.newAction()
           .setFunctionName("showWorkbookMigrationOptions")
           .setParameters(migrationParameters)));
@@ -82,6 +87,50 @@ function buildInstallerHomeCard_(e) {
   }
 
   return builder.build();
+}
+
+
+function buildEntireWorkbookWarningResponse_(e, ss, scan) {
+  const destinationName = getInstallerDestinationName_(e, ss);
+  const section = CardService.newCardSection()
+    .setHeader("Review workbook compatibility")
+    .addWidget(CardService.newTextParagraph().setText(
+      "SendMeBot will copy all " + scan.sheets.length + " worksheet tab(s) into the installed workbook."
+    ))
+    .addWidget(CardService.newTextInput()
+      .setFieldName("destinationWorkbookName")
+      .setTitle("New workbook name")
+      .setValue(destinationName))
+    .addWidget(CardService.newTextParagraph().setText(
+      "Compatibility warnings:\n• " + scan.warnings.join("\n• ")
+    ))
+    .addWidget(CardService.newSelectionInput()
+      .setType(CardService.SelectionInputType.CHECK_BOX)
+      .setFieldName("acceptComplexMigration")
+      .setTitle("Complex workbook confirmation")
+      .addItem("Continue after reviewing these warnings", "accepted", false));
+
+  if (scan.notices && scan.notices.length) {
+    section.addWidget(CardService.newTextParagraph().setText(scan.notices.join("\n")));
+  }
+
+  section.addWidget(CardService.newTextButton()
+    .setText("Install full workbook")
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setOnClickAction(CardService.newAction()
+      .setFunctionName("installEntireCurrentWorkbook")
+      .setParameters({
+        sourceSpreadsheetId: ss.getId(),
+        sourceSpreadsheetName: ss.getName()
+      })));
+
+  const card = CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle("SendMeBot Installer"))
+    .addSection(section)
+    .build();
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(card))
+    .build();
 }
 
 
