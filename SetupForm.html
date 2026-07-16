@@ -3,6 +3,21 @@
   <head>
     <base target="_top">
     <?!= includeHtml_("Modal") ?>
+    <style>
+      #addSelectOption {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      #addSelectOption.hidden { display: none; }
+      #addSelectColumn {
+        width: 16px;
+        height: 16px;
+        margin: 1px 0 0;
+      }
+      #recipientGuidance { margin-bottom: 14px; }
+    </style>
   </head>
 
   <body>
@@ -12,6 +27,13 @@
         <label for="trackerSheet">Tracker sheet</label>
         <select id="trackerSheet" onchange="renderHeaders()"></select>
       </div>
+
+      <label id="addSelectOption" class="hidden">
+        <input id="addSelectColumn" type="checkbox" checked>
+        Add the required Select checkbox column to this sheet
+      </label>
+
+      <div id="recipientGuidance" class="helper"></div>
 
       <div class="field">
         <label for="recordIdHeader">Record ID column</label>
@@ -80,6 +102,14 @@
         if (sheetSelect.value === context.config.trackerSheetName) {
           headerSelect.value = context.config.recordIdHeader || "";
         }
+
+        const needsSelect = !!selectedSheet && !selectedSheet.hasSelectColumn;
+        document.getElementById("addSelectOption").classList.toggle("hidden", !needsSelect);
+        const emailHeaders = (selectedSheet && selectedSheet.emailHeaders) || [];
+        document.getElementById("recipientGuidance").textContent = emailHeaders.length
+          ? "Recipient fields found: " + emailHeaders.join(", ") +
+            ". You can choose separate To, CC, and BCC fields each time you send."
+          : "No email-named columns were detected. Add recipient columns before sending.";
       }
 
       function saveSetup() {
@@ -127,7 +157,8 @@
           })
           .saveSendMeBotSetup({
             trackerSheetName: sheetSelect.value,
-            recordIdHeader: headerSelect.value
+            recordIdHeader: headerSelect.value,
+            addSelectColumn: document.getElementById("addSelectColumn").checked
           });
       }
 

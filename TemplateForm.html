@@ -6,9 +6,9 @@
 
     <style>
       :root {
-        --akamai-blue: #0099cc;
-        --akamai-orange: #ff9933;
-        --akamai-navy: #002b49;
+        --brand-primary: #356854;
+        --brand-accent: #1a73e8;
+        --brand-dark: #20342d;
         --signature-charcoal: #666666;
         --black: #1f1f1f;
         --panel-bg: #f8fafd;
@@ -485,7 +485,7 @@
           id="subjectEditor"
           class="editor"
           contenteditable="true"
-          data-placeholder="Welcome to Akamai, Name"
+          data-placeholder="Welcome, Name"
         ></div>
       </div>
 
@@ -522,19 +522,19 @@
                   Red
                 </button>
 
-                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#0099cc')">
-                  <span class="color-menu-dot" style="--dot-color:#0099cc;"></span>
-                  Akamai blue
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu(getBrandColor_('primaryColor'))">
+                  <span class="color-menu-dot" style="--dot-color:var(--brand-primary);"></span>
+                  <span id="brandPrimaryLabel">Brand primary</span>
                 </button>
 
-                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#ff9933')">
-                  <span class="color-menu-dot" style="--dot-color:#ff9933;"></span>
-                  Akamai orange
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu(getBrandColor_('accentColor'))">
+                  <span class="color-menu-dot" style="--dot-color:var(--brand-accent);"></span>
+                  <span id="brandAccentLabel">Brand accent</span>
                 </button>
 
-                <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#002b49')">
-                  <span class="color-menu-dot" style="--dot-color:#002b49;"></span>
-                  Akamai navy
+                <button type="button" class="color-menu-option" onclick="applyColorFromMenu(getBrandColor_('darkColor'))">
+                  <span class="color-menu-dot" style="--dot-color:var(--brand-dark);"></span>
+                  <span id="brandDarkLabel">Brand dark</span>
                 </button>
 
                 <button type="button" class="color-menu-option" onclick="applyColorFromMenu('#666666')">
@@ -587,7 +587,7 @@
 
         <div class="field">
           <label for="linkTextInput">Text to display</label>
-          <input id="linkTextInput" type="text" placeholder="Akamai careers">
+          <input id="linkTextInput" type="text" placeholder="SendMeBot">
         </div>
 
         <div class="field">
@@ -639,6 +639,7 @@
         });
 
       function initializeComposer() {
+        applyBrandContext_();
         setupModeUI();
 
         setupEditor("subjectEditor", true);
@@ -660,6 +661,27 @@
 
         normalizeEditorVariables(document.getElementById("subjectEditor"));
         normalizeEditorVariables(document.getElementById("bodyEditor"));
+      }
+
+      function applyBrandContext_() {
+        const brand = context.brand || {};
+        document.documentElement.style.setProperty("--brand-primary", brand.primaryColor || "#356854");
+        document.documentElement.style.setProperty("--brand-accent", brand.accentColor || "#1a73e8");
+        document.documentElement.style.setProperty("--brand-dark", brand.darkColor || "#20342d");
+        const name = brand.name || "SendMeBot";
+        document.getElementById("brandPrimaryLabel").textContent = name + " primary";
+        document.getElementById("brandAccentLabel").textContent = name + " accent";
+        document.getElementById("brandDarkLabel").textContent = name + " dark";
+        document.getElementById("subjectEditor").setAttribute(
+          "data-placeholder",
+          "Welcome from " + name + ", Name"
+        );
+        document.getElementById("linkTextInput").placeholder = name;
+      }
+
+      function getBrandColor_(key) {
+        const brand = context.brand || {};
+        return brand[key] || "#356854";
       }
 
       function setupColorMenuDismiss() {

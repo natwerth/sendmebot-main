@@ -1,0 +1,10 @@
+{
+  "development": {
+    "templateSpreadsheetId": "REPLACE_LOCALLY",
+    "releaseMetadataUrl": "https://www.natwerth.com/sendmebot/releases/development.json"
+  },
+  "production": {
+    "templateSpreadsheetId": "REPLACE_LOCALLY",
+    "releaseMetadataUrl": "https://www.natwerth.com/sendmebot/releases/stable.json"
+  }
+}

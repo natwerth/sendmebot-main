@@ -26,7 +26,8 @@ function getComposeTemplateContext_() {
     rowVariables: rowVariables,
     senderVariables: senderVariables,
     imageAssets: imageAssets,
-    imageVariables: imageAssets.map(asset => asset.name)
+    imageVariables: imageAssets.map(asset => asset.name),
+    brand: getSendMeBotClientBrand_()
   };
 }
 
@@ -433,7 +434,14 @@ function getTemplateStatusColumn_(headers, key) {
 
 // --- Template rendering ---
 
-function renderTextWithAssetsToHtml_(text, textVars, imageAssets, inlineImages, richHtmlVars) {
+function renderTextWithAssetsToHtml_(
+  text,
+  textVars,
+  imageAssets,
+  inlineImages,
+  richHtmlVars,
+  assetContext
+) {
   const runs = parseTemplateHtmlRuns_(String(text || ""));
 
   return runs.map(run => {
@@ -459,7 +467,7 @@ function renderTextWithAssetsToHtml_(text, textVars, imageAssets, inlineImages, 
       const asset = imageAssets[normalizeTemplateKey_(key)];
 
       if (asset) {
-        return getImageHtmlForAsset_(asset, inlineImages);
+        return getImageHtmlForAsset_(asset, inlineImages, assetContext);
       }
 
       return "";
@@ -468,7 +476,7 @@ function renderTextWithAssetsToHtml_(text, textVars, imageAssets, inlineImages, 
 }
 
 
-function renderPlainTextWithAssets_(text, textVars, imageAssets, richPlainVars) {
+function renderPlainTextWithAssets_(text, textVars, imageAssets, richPlainVars, assetContext) {
   const runs = parseTemplateHtmlRuns_(String(text || ""));
 
   return runs.map(run => {
@@ -494,6 +502,7 @@ function renderPlainTextWithAssets_(text, textVars, imageAssets, richPlainVars) 
       const asset = imageAssets[normalizeTemplateKey_(key)];
 
       if (asset) {
+        if (isAssetOmitted_(assetContext, getImageAssetKey_(asset))) return "";
         return "[Image: " + asset.name + "]";
       }
 

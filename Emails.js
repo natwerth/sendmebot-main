@@ -498,6 +498,205 @@ function prepareScheduledRows_(ss, sheet, rows, headers, recipientConfig, record
   return { validRows: validRows, failures: failures, preparedRows: preparedRows };
 }
 
+
+function getAttachmentAssetKey_(link, index) {
+  const raw = String(link || "").trim();
+  const fileId = extractDriveFileId_(raw);
+  return "attachment:" + Number(index || 0) + ":" + (fileId || raw);
+}
+
+
+function normalizeAssetPolicy_(value) {
+  const policy = value && typeof value === "object" ? value : {};
+  const allowedKeys = Array.isArray(policy.allowedKeys)
+    ? policy.allowedKeys.map(key => String(key || "")).filter(Boolean)
+    : [];
+  return {
+    mode: policy.mode === "omit_confirmed" ? "omit_confirmed" : "strict",
+    issueSetId: String(policy.issueSetId || ""),
+    allowedKeys: allowedKeys
+  };
+}
+
+
+function createAssetRenderContext_(assetPolicy) {
+  return {
+    assetPolicy: normalizeAssetPolicy_(assetPolicy),
+    omittedAssets: [],
+    omittedKeyMap: {}
+  };
+}
+
+
+function shouldOmitAssetFailure_(assetContext, key) {
+  if (!assetContext || !key) return false;
+  const policy = normalizeAssetPolicy_(assetContext.assetPolicy);
+  return policy.mode === "omit_confirmed" && policy.allowedKeys.indexOf(key) !== -1;
+}
+
+
+function recordOmittedAsset_(assetContext, item) {
+  if (!assetContext || !item || !item.key) return;
+  if (!assetContext.omittedKeyMap) assetContext.omittedKeyMap = {};
+  if (!Array.isArray(assetContext.omittedAssets)) assetContext.omittedAssets = [];
+  if (assetContext.omittedKeyMap[item.key]) return;
+  assetContext.omittedKeyMap[item.key] = true;
+  assetContext.omittedAssets.push({
+    key: item.key,
+    kind: item.kind,
+    label: item.label,
+    reason: item.reason || ""
+  });
+}
+
+
+function isAssetOmitted_(assetContext, key) {
+  return !!(
+    assetContext && assetContext.omittedKeyMap && key && assetContext.omittedKeyMap[key]
+  );
+}
+
+
+function makeAssetIssueSetId_(issues) {
+  const input = (issues || [])
+    .map(item => [item.key, item.kind, item.label].join("|"))
+    .sort()
+    .join("\n");
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return "assets-" + (hash >>> 0).toString(16);
+}
+
+
+function getReferencedImageAssets_(template, senderProfile, imageAssets) {
+  const referenced = {};
+  const values = [
+    template && template.body,
+    senderProfile && senderProfile.signatureText
+  ];
+
+  values.forEach(value => {
+    getTemplateTokens_(value).forEach(token => {
+      const asset = (imageAssets || {})[normalizeTemplateKey_(token)];
+      if (asset) referenced[getImageAssetKey_(asset)] = asset;
+    });
+  });
+
+  return Object.keys(referenced).map(key => referenced[key]);
+}
+
+
+function preflightSendAssets_(ss, templateKey, senderProfile) {
+  const templateSheet = ss.getSheetByName("Templates");
+  if (!templateSheet) throw new Error("Missing Templates sheet.");
+  const template = getTemplateByKey_(templateSheet, templateKey);
+  const imageAssets = getImageAssets_(ss);
+  const issues = [];
+
+  getReferencedImageAssets_(template, senderProfile, imageAssets).forEach(asset => {
+    const fileId = extractDriveFileId_(asset.link);
+    const key = getImageAssetKey_(asset);
+    if (!fileId) {
+      issues.push({
+        key: key,
+        kind: "image",
+        label: asset.name || "Image",
+        reason: "The image link does not contain a valid Drive file ID."
+      });
+      return;
+    }
+    try {
+      DriveApp.getFileById(fileId).getBlob();
+    } catch (err) {
+      issues.push({
+        key: key,
+        kind: "image",
+        label: asset.name || "Image",
+        reason: "The Drive image is unavailable to the sending account."
+      });
+    }
+  });
+
+  const attachmentLinks = String(template.attachmentLink || "")
+    .split(/\n|,/)
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  attachmentLinks.forEach((link, index) => {
+    const fileId = extractDriveFileId_(link);
+    const key = getAttachmentAssetKey_(link, index);
+    const label = "Attachment " + (index + 1);
+    if (!fileId) {
+      issues.push({
+        key: key,
+        kind: "attachment",
+        label: label,
+        reason: "The attachment link does not contain a valid Drive file ID."
+      });
+      return;
+    }
+    try {
+      const file = DriveApp.getFileById(fileId);
+      file.getBlob();
+    } catch (err) {
+      issues.push({
+        key: key,
+        kind: "attachment",
+        label: label,
+        reason: "The Drive attachment is unavailable to the sending account."
+      });
+    }
+  });
+
+  return {
+    issues: issues,
+    issueSetId: makeAssetIssueSetId_(issues)
+  };
+}
+
+
+function resolveAssetPolicyForRequest_(submittedPolicy, preflight) {
+  const policy = normalizeAssetPolicy_(submittedPolicy);
+  const issues = (preflight && preflight.issues) || [];
+  const issueSetId = (preflight && preflight.issueSetId) || makeAssetIssueSetId_(issues);
+
+  if (!issues.length) {
+    return { confirmed: true, policy: normalizeAssetPolicy_({ mode: "strict" }) };
+  }
+
+  if (policy.mode === "omit_confirmed" && policy.issueSetId === issueSetId) {
+    return {
+      confirmed: true,
+      policy: {
+        mode: "omit_confirmed",
+        issueSetId: issueSetId,
+        allowedKeys: issues.map(item => item.key)
+      }
+    };
+  }
+
+  return {
+    confirmed: false,
+    response: {
+      requiresAssetConfirmation: true,
+      issueSetId: issueSetId,
+      assetIssues: issues.map(item => ({
+        key: item.key,
+        kind: item.kind,
+        label: item.label,
+        reason: item.reason
+      })),
+      sent: 0,
+      scheduled: 0,
+      failed: 0,
+      success: false
+    }
+  };
+}
+
 function queueSendFormJob(formData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = getTrackerSheet_();
@@ -529,6 +728,21 @@ function queueSendFormJob(formData) {
   }
 
   let trackTemplateStatus = !!getTemplateStatusColumn_(headers, templateKey);
+  if (action === "schedule" && !trackTemplateStatus && !createTrackingColumn) {
+    throw new Error("Create a tracking column before scheduling this template.");
+  }
+
+  if (action === "schedule") {
+    validateScheduledInstant_(scheduledForIso, new Date());
+    if (!scheduledTimeZone) throw new Error("Browser timezone is required for scheduling.");
+    if (!scheduledDisplayText) throw new Error("Scheduled display time is required.");
+  }
+
+  const senderProfile = requireAuthenticatedSenderProfile_(ss, formData.sender);
+  const assetPreflight = preflightSendAssets_(ss, templateKey, senderProfile);
+  const assetResolution = resolveAssetPolicyForRequest_(formData.assetPolicy, assetPreflight);
+  if (!assetResolution.confirmed) return assetResolution.response;
+
   if (!trackTemplateStatus && createTrackingColumn) {
     ensureTrackerColumnForTemplate_(templateKey);
     headers = getHeaders_(sheet);
@@ -536,28 +750,10 @@ function queueSendFormJob(formData) {
     if (!trackTemplateStatus) throw new Error("Tracking column creation could not be verified.");
   }
 
-  if (action === "schedule" && !trackTemplateStatus) {
-    throw new Error("Create a tracking column before scheduling this template.");
-  }
-
   if (action === "schedule") {
     markSchedulingRowsStarted_(sheet, headers, selectedRows, templateKey);
   }
 
-  let senderProfile;
-  try {
-    if (action === "schedule") {
-      validateScheduledInstant_(scheduledForIso, new Date());
-      if (!scheduledTimeZone) throw new Error("Browser timezone is required for scheduling.");
-      if (!scheduledDisplayText) throw new Error("Scheduled display time is required.");
-    }
-    senderProfile = requireAuthenticatedSenderProfile_(ss, formData.sender);
-  } catch (requestErr) {
-    if (action === "schedule") {
-      markSchedulingRequestError_(sheet, headers, selectedRows, templateKey, requestErr.message || requestErr);
-    }
-    throw requestErr;
-  }
   const sender = senderProfile.email;
   const recipientConfig = {
     sender: sender,
@@ -641,7 +837,8 @@ function queueSendFormJob(formData) {
     attemptedRows: selectedRows,
     preflightFailures: preflightFailures,
     preparedScheduledRows: preparedRows,
-    trackTemplateStatus: trackTemplateStatus
+    trackTemplateStatus: trackTemplateStatus,
+    assetPolicy: assetResolution.policy
   };
 
   let result;
@@ -885,7 +1082,8 @@ function processOneQueuedJob_(job) {
           job.sender,
           recipientConfig,
           config.recordIdHeader,
-          trackingOptions
+          trackingOptions,
+          job.assetPolicy
         );
       } catch (err) {
         result = { status: "failed", row: row, error: err.message || String(err) };
@@ -957,7 +1155,8 @@ function processOneQueuedJob_(job) {
           job.scheduledTimeZone,
           job.scheduledDisplayText,
           recipientConfig,
-          preparedRows[row]
+          preparedRows[row],
+          job.assetPolicy
         );
       } catch (err) {
         result = { status: "failed", row: row, error: err.message || String(err) };
@@ -1173,7 +1372,8 @@ function sendOneRowNow_(
   sender,
   recipientConfig,
   recordIdHeader,
-  trackingOptions
+  trackingOptions,
+  assetPolicy
 ) {
   const templateSheet = ss.getSheetByName("Templates");
   const tracking = trackingOptions || { enabled: true, allowLegacyCreate: true };
@@ -1219,7 +1419,15 @@ function sendOneRowNow_(
     if (!email) throw new Error("Missing recipient email.");
 
     const template = getTemplateByKey_(templateSheet, templateKey);
-    const payload = buildEmailPayload_(ss, sheet, row, headers, template, sender);
+    const payload = buildEmailPayload_(
+      ss,
+      sheet,
+      row,
+      headers,
+      template,
+      sender,
+      { assetPolicy: assetPolicy }
+    );
 
     // Revalidate the execution authority immediately before MailApp.
     const effectiveUser = getAuthenticatedUserEmail_();
@@ -1250,10 +1458,11 @@ function sendOneRowNow_(
       sender,
       subject: payload.subject,
       status: "Sent",
-      message: "Email sent successfully.",
+      message: getAssetDeliveryMessage_("Email sent successfully.", payload.omittedAssets),
       sourceRow: row,
       body: payload.plainBody,
-      attachments: payload.attachmentNames || ""
+      attachments: payload.attachmentNames || "",
+      logNote: getAssetOmissionLogNote_(payload.omittedAssets)
     });
 
     return { status: "sent", row: row, error: "" };
@@ -1321,7 +1530,8 @@ function getLiveDeliveryMetadata_(sheet, row, statusColumn, prepared, audit) {
     recordIdHeader: prepared.recordIdHeader,
     recordIdValue: prepared.recordIdValue,
     scheduledTimeZone: audit.scheduledTimeZone,
-    scheduledDisplayText: audit.scheduledDisplayText
+    scheduledDisplayText: audit.scheduledDisplayText,
+    assetPolicy: normalizeAssetPolicy_(audit.assetPolicy)
   };
 }
 
@@ -1336,7 +1546,8 @@ function scheduleOneRow_(
   scheduledTimeZone,
   scheduledDisplayText,
   recipientConfig,
-  preparedRow
+  preparedRow,
+  assetPolicy
 ) {
   let queueRowWritten = false;
   let queueRow = 0;
@@ -1360,7 +1571,8 @@ function scheduleOneRow_(
     if (!recipients || !recipients.to) throw new Error("Scheduled row is missing Recipient.");
     const metadata = getLiveDeliveryMetadata_(sheet, row, statusHeaderCol, prepared, {
       scheduledTimeZone: scheduledTimeZone,
-      scheduledDisplayText: scheduledDisplayText
+      scheduledDisplayText: scheduledDisplayText,
+      assetPolicy: assetPolicy
     });
 
     queueRow = logSentEmail_(ss, {
@@ -1740,7 +1952,12 @@ function processScheduledEmails_(options) {
           sourceResolution.headers,
           template,
           sender,
-          { senderProfile: senderProfile, imageAssets: imageAssets, rowData: rowData }
+          {
+            senderProfile: senderProfile,
+            imageAssets: imageAssets,
+            rowData: rowData,
+            assetPolicy: metadata.assetPolicy
+          }
         );
         renderedPayload = payload;
 
@@ -1765,7 +1982,10 @@ function processScheduledEmails_(options) {
         });
         delivered = true;
 
-        const successMessage = "Scheduled email sent successfully.";
+        const successMessage = getAssetDeliveryMessage_(
+          "Scheduled email sent successfully.",
+          payload.omittedAssets
+        );
         updateSentQueueRow_(sentSheet, row, rowValues, headers, {
           "Status": "Sent",
           "Processed At": new Date(now.getTime()),
@@ -1774,7 +1994,7 @@ function processScheduledEmails_(options) {
           "Subject": payload.subject,
           "Email Body": payload.plainBody,
           "Attachments": payload.attachmentNames || "",
-          "Log Note": successMessage
+          "Log Note": getAssetOmissionLogNote_(payload.omittedAssets) || successMessage
         });
         try {
           updateScheduledSourceTracker_(
@@ -1840,12 +2060,33 @@ function processScheduledEmails_(options) {
 // Email payload / variable rendering
 // =============================================================================
 
+function getAssetDeliveryMessage_(baseMessage, omittedAssets) {
+  const omitted = Array.isArray(omittedAssets) ? omittedAssets : [];
+  if (!omitted.length) return baseMessage;
+  return baseMessage + " Omitted unavailable files: " +
+    omitted.map(item => item.label).join(", ") + ".";
+}
+
+
+function getAssetOmissionLogNote_(omittedAssets) {
+  const omitted = Array.isArray(omittedAssets) ? omittedAssets : [];
+  if (!omitted.length) return "";
+  return JSON.stringify({
+    omittedAssets: omitted.map(item => ({
+      kind: item.kind,
+      label: item.label,
+      reason: item.reason || ""
+    }))
+  });
+}
+
 function buildEmailPayload_(ss, trackerSheet, row, trackerHeaders, template, senderEmail, context) {
   const renderContext = context || {};
   const senderProfile = renderContext.senderProfile || getSenderProfile_(ss, senderEmail);
   const imageAssets = renderContext.imageAssets || getImageAssets_(ss);
   const inlineImages = {};
-  const attachments = getAttachmentBlobsForTemplate_(template);
+  const assetContext = createAssetRenderContext_(renderContext.assetPolicy);
+  const attachments = getAttachmentBlobsForTemplate_(template, assetContext);
 
   const rowData = renderContext.rowData || getRowData_(trackerSheet, row, trackerHeaders);
 
@@ -1859,13 +2100,16 @@ function buildEmailPayload_(ss, trackerSheet, row, trackerHeaders, template, sen
     senderProfile.signatureText,
     textVars,
     imageAssets,
-    inlineImages
+    inlineImages,
+    assetContext
   );
 
   const senderSignaturePlain = renderPlainTextWithAssets_(
     senderProfile.signatureText,
     textVars,
-    imageAssets
+    imageAssets,
+    {},
+    assetContext
   );
 
   const richHtmlVars = {
@@ -1880,7 +2124,8 @@ function buildEmailPayload_(ss, trackerSheet, row, trackerHeaders, template, sen
     template.subject,
     textVars,
     imageAssets,
-    richPlainVars
+    richPlainVars,
+    assetContext
   );
 
   const htmlBody = renderTextWithAssetsToHtml_(
@@ -1888,14 +2133,16 @@ function buildEmailPayload_(ss, trackerSheet, row, trackerHeaders, template, sen
     textVars,
     imageAssets,
     inlineImages,
-    richHtmlVars
+    richHtmlVars,
+    assetContext
   );
 
   const plainBody = renderPlainTextWithAssets_(
     template.body,
     textVars,
     imageAssets,
-    richPlainVars
+    richPlainVars,
+    assetContext
   );
 
   return {
@@ -1905,11 +2152,12 @@ function buildEmailPayload_(ss, trackerSheet, row, trackerHeaders, template, sen
     inlineImages: inlineImages,
     attachments: attachments,
     attachmentNames: attachments.map(blob => blob.getName()).join("\n"),
-    senderName: senderProfile.name || senderEmail || ""
+    senderName: senderProfile.name || senderEmail || "",
+    omittedAssets: assetContext.omittedAssets.slice()
   };
 }
 
-function getAttachmentBlobsForTemplate_(template) {
+function getAttachmentBlobsForTemplate_(template, assetContext) {
   const raw = String(template.attachmentLink || "").trim();
 
   if (!raw) return [];
@@ -1919,42 +2167,77 @@ function getAttachmentBlobsForTemplate_(template) {
     .map(value => value.trim())
     .filter(Boolean);
 
-  return links.map(link => {
+  const attachments = [];
+
+  links.forEach((link, index) => {
     const fileId = extractDriveFileId_(link);
+    const key = getAttachmentAssetKey_(link, index);
+    const label = "Attachment " + (index + 1);
 
     if (!fileId) {
+      if (shouldOmitAssetFailure_(assetContext, key)) {
+        recordOmittedAsset_(assetContext, {
+          key: key,
+          kind: "attachment",
+          label: label,
+          reason: "The attachment link does not contain a valid Drive file ID."
+        });
+        return;
+      }
       throw new Error("Could not extract Drive file ID from attachment link.");
     }
 
     try {
-      return DriveApp.getFileById(fileId).getBlob();
+      attachments.push(DriveApp.getFileById(fileId).getBlob());
     } catch (err) {
+      if (shouldOmitAssetFailure_(assetContext, key)) {
+        recordOmittedAsset_(assetContext, {
+          key: key,
+          kind: "attachment",
+          label: label,
+          reason: "The Drive attachment is unavailable to the sending account."
+        });
+        return;
+      }
       throw new Error("Could not access attachment file. Check the Drive link and permissions.");
     }
   });
+
+  return attachments;
 }
 
-function renderRichTextOrTextWithAssets_(richTextValue, fallbackText, textVars, imageAssets, inlineImages) {
+function renderRichTextOrTextWithAssets_(
+  richTextValue,
+  fallbackText,
+  textVars,
+  imageAssets,
+  inlineImages,
+  assetContext
+) {
   if (!richTextValue) {
-    return renderTextWithAssetsToHtml_(fallbackText, textVars, imageAssets, inlineImages, {});
+    return renderTextWithAssetsToHtml_(
+      fallbackText, textVars, imageAssets, inlineImages, {}, assetContext
+    );
   }
 
   const runs = richTextValue.getRuns();
 
   if (!runs || !runs.length) {
-    return renderTextWithAssetsToHtml_(richTextValue.getText(), textVars, imageAssets, inlineImages, {});
+    return renderTextWithAssetsToHtml_(
+      richTextValue.getText(), textVars, imageAssets, inlineImages, {}, assetContext
+    );
   }
 
   let html = "";
 
   runs.forEach(run => {
-    html += renderRichRunWithAssets_(run, textVars, imageAssets, inlineImages);
+    html += renderRichRunWithAssets_(run, textVars, imageAssets, inlineImages, assetContext);
   });
 
   return html;
 }
 
-function renderRichRunWithAssets_(run, textVars, imageAssets, inlineImages) {
+function renderRichRunWithAssets_(run, textVars, imageAssets, inlineImages, assetContext) {
   const runText = run.getText();
   const style = run.getTextStyle();
   const linkUrl = run.getLinkUrl();
@@ -1974,7 +2257,7 @@ function renderRichRunWithAssets_(run, textVars, imageAssets, inlineImages) {
       const asset = imageAssets[normalizeTemplateKey_(key)];
 
       if (asset) {
-        return getImageHtmlForAsset_(asset, inlineImages);
+        return getImageHtmlForAsset_(asset, inlineImages, assetContext);
       }
 
       return "";

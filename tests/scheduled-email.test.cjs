@@ -353,7 +353,7 @@ test("lean scheduling freezes recipients and record identity without rendering",
   assert.equal(result.preparedRows[2].recipients.bcc, "audit@example.com");
   const source = emailsSource.slice(
     emailsSource.indexOf("function prepareScheduledRows_"),
-    emailsSource.indexOf("function queueSendFormJob")
+    emailsSource.indexOf("function getAttachmentAssetKey_")
   );
   assert.doesNotMatch(source, /buildEmailPayload_|DriveApp|getTemplateByKey_/);
 });

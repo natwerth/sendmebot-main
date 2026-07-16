@@ -8,7 +8,7 @@
       :root {
         --panel-bg: #f8fafd;
         --overlay-bg: rgba(32, 33, 36, 0.38);
-        --akamai-blue: #0099cc;
+        --brand-primary: #356854;
         --signature-charcoal: #666666;
       }
 
@@ -122,7 +122,7 @@
       }
 
       .color-swatch.blue::before {
-        background: var(--akamai-blue);
+        background: var(--brand-primary);
       }
 
       .color-swatch.charcoal::before {
@@ -288,9 +288,10 @@
             <button
               type="button"
               class="color-swatch blue"
-              title="Akamai blue"
-              aria-label="Apply Akamai blue"
-              onclick="applyTextColor('#0099cc')"
+              id="brandColorSwatch"
+              title="Brand color"
+              aria-label="Apply brand color"
+              onclick="applyTextColor(getBrandColor_('primaryColor'))"
             ></button>
 
             <button
@@ -337,7 +338,7 @@
 
         <div class="field">
           <label for="linkTextInput">Text to display</label>
-          <input id="linkTextInput" type="text" placeholder="Akamai">
+          <input id="linkTextInput" type="text" placeholder="SendMeBot">
         </div>
 
         <div class="field">
@@ -366,6 +367,15 @@
       });
 
       function initializeSenderForm() {
+        const brand = context.brand || {};
+        document.documentElement.style.setProperty(
+          "--brand-primary",
+          brand.primaryColor || "#356854"
+        );
+        const swatch = document.getElementById("brandColorSwatch");
+        swatch.title = (brand.name || "SendMeBot") + " brand color";
+        swatch.setAttribute("aria-label", "Apply " + swatch.title);
+        document.getElementById("linkTextInput").placeholder = brand.name || "SendMeBot";
         setupSignatureEditor();
         populateImageChips();
         setupLinkModalKeyboard();
@@ -393,6 +403,11 @@
           document.getElementById("signatureEditor").innerHTML =
             senderState.record.signatureHtml || senderState.record.signature || "";
         }
+      }
+
+      function getBrandColor_(key) {
+        const brand = context.brand || {};
+        return brand[key] || "#356854";
       }
 
       function setupSignatureEditor() {

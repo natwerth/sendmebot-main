@@ -1,0 +1,11 @@
+{
+  "name": "sendmebot-apps-script",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/setup-config.test.cjs && node tests/sender-onboarding.test.cjs && node tests/scheduled-email.test.cjs && node tests/deploy-target.test.mjs && node installer/tests/installer.test.mjs && node installer/tests/updater.test.mjs",
+    "build:installer": "node scripts/build-installer.mjs",
+    "build:payload": "node scripts/build-payload.mjs"
+  }
+}

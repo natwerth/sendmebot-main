@@ -165,6 +165,10 @@ function loadEmailsSandbox(extra) {
   return sandbox;
 }
 
+function allowAssetPreflight(sandbox) {
+  sandbox.preflightSendAssets_ = () => ({ issues: [], issueSetId: "assets-empty" });
+}
+
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
@@ -386,6 +390,7 @@ test("immediate sending does not create a missing tracking column unless opted i
       return 4;
     };
     sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+    allowAssetPreflight(sandbox);
     sandbox.saveQueuedJob_ = job => { savedJob = job; };
     sandbox.processQueuedJobs_ = () => ({
       attempted: 1, successful: 1, sent: 1, scheduled: 0, failed: 0,
@@ -451,6 +456,7 @@ test("scheduled opt-in creates one tracking column before trigger readiness", ()
   };
   sandbox.markSchedulingRowsStarted_ = () => {};
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  allowAssetPreflight(sandbox);
   sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
   sandbox.prepareScheduledRows_ = () => ({
     validRows: [2], failures: [], preparedRows: { 2: { recordIdValue: "Alice" } }
@@ -485,6 +491,8 @@ test("tracking-column creation failure prevents request processing", () => {
   sandbox.getHeaders_ = () => ({ select: 1 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.getTemplateStatusColumn_ = () => null;
+  sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  allowAssetPreflight(sandbox);
   sandbox.ensureTrackerColumnForTemplate_ = () => { throw new Error("column write failed"); };
   sandbox.saveQueuedJob_ = () => { processed++; };
   assert.throws(() => sandbox.queueSendFormJob({
@@ -507,6 +515,7 @@ test("trigger setup failure follows early tracker feedback but leaves selections
   sandbox.getSelectedRows_ = () => [2];
   sandbox.getTemplateStatusColumn_ = () => 4;
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  allowAssetPreflight(sandbox);
   sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
   sandbox.prepareScheduledRows_ = () => ({
     validRows: [2], failures: [], preparedRows: { 2: { recordIdValue: "Alice" } }
@@ -584,6 +593,7 @@ test("scheduling begins row processing only after trigger readiness is verified"
   sandbox.getHeaders_ = () => ({ select: 1, status: 2, "student name": 3 });
   sandbox.getSelectedRows_ = () => [2];
   sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  allowAssetPreflight(sandbox);
   const prepared = { 2: { recordIdValue: "Alice" } };
   sandbox.getSendMeBotConfig_ = () => ({ recordIdHeader: "Student Name" });
   sandbox.prepareScheduledRows_ = () => ({
@@ -903,6 +913,104 @@ test("dynamic action labels and duplicate-submit guard are present", () => {
     script.indexOf('setSubmitButtonState(\n          "working"') <
     script.indexOf(".queueSendFormJob(formData)")
   );
+});
+
+test("asset issue confirmation is exact and cannot silently broaden", () => {
+  const sandbox = loadEmailsSandbox();
+  const first = {
+    issues: [{ key: "image:logo:file1", kind: "image", label: "Logo", reason: "missing" }],
+    issueSetId: "assets-one"
+  };
+  const strict = sandbox.resolveAssetPolicyForRequest_({ mode: "strict" }, first);
+  assert.equal(strict.confirmed, false);
+  assert.equal(strict.response.requiresAssetConfirmation, true);
+
+  const confirmed = sandbox.resolveAssetPolicyForRequest_({
+    mode: "omit_confirmed",
+    issueSetId: "assets-one"
+  }, first);
+  assert.equal(confirmed.confirmed, true);
+  assert.deepEqual(Array.from(confirmed.policy.allowedKeys), ["image:logo:file1"]);
+
+  const changed = sandbox.resolveAssetPolicyForRequest_({
+    mode: "omit_confirmed",
+    issueSetId: "assets-one"
+  }, {
+    issues: [{ key: "attachment:0:file2", kind: "attachment", label: "Attachment 1" }],
+    issueSetId: "assets-two"
+  });
+  assert.equal(changed.confirmed, false);
+});
+
+test("asset confirmation returns before tracking, scheduling, or queue mutation", () => {
+  const sandbox = loadEmailsSandbox({
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({}), flush() {} }
+  });
+  const calls = { tracking: 0, started: 0, queued: 0 };
+  sandbox.getTrackerSheet_ = () => ({});
+  sandbox.getHeaders_ = () => ({ select: 1 });
+  sandbox.getSelectedRows_ = () => [2];
+  sandbox.getTemplateStatusColumn_ = () => null;
+  sandbox.requireAuthenticatedSenderProfile_ = () => ({ email: "owner@akamai.com" });
+  sandbox.preflightSendAssets_ = () => ({
+    issues: [{ key: "image:logo:file1", kind: "image", label: "Logo", reason: "missing" }],
+    issueSetId: "assets-one"
+  });
+  sandbox.ensureTrackerColumnForTemplate_ = () => { calls.tracking++; return 4; };
+  sandbox.markSchedulingRowsStarted_ = () => { calls.started++; };
+  sandbox.saveQueuedJob_ = () => { calls.queued++; };
+
+  const result = sandbox.queueSendFormJob({
+    action: "send_now",
+    template: "Welcome",
+    toField: { value: "Email", valueType: "field" },
+    createTrackingColumn: true
+  });
+  assert.equal(result.requiresAssetConfirmation, true);
+  assert.deepEqual(calls, { tracking: 0, started: 0, queued: 0 });
+});
+
+test("confirmed unavailable images and attachments can be omitted with friendly strict errors", () => {
+  const sandbox = loadEmailsSandbox({
+    DriveApp: { getFileById() { throw new Error("No item with the given ID"); } }
+  });
+  vm.runInContext(dataSource, sandbox, { filename: "Data.js" });
+  sandbox.normalizeTemplateKey_ = normalize;
+
+  const asset = { name: "Logo", link: "https://drive.google.com/file/d/file1/view" };
+  const imageKey = sandbox.getImageAssetKey_(asset);
+  const imageContext = sandbox.createAssetRenderContext_({
+    mode: "omit_confirmed",
+    allowedKeys: [imageKey]
+  });
+  assert.equal(sandbox.getDriveImageBlob_(asset.link, asset, imageContext), null);
+  assert.equal(imageContext.omittedAssets[0].label, "Logo");
+
+  const strictContext = sandbox.createAssetRenderContext_({ mode: "strict" });
+  assert.throws(
+    () => sandbox.getDriveImageBlob_(asset.link, asset, strictContext),
+    /Could not access image "Logo"/
+  );
+
+  const attachment = "https://drive.google.com/file/d/file2/view";
+  const attachmentKey = sandbox.getAttachmentAssetKey_(attachment, 0);
+  const attachmentContext = sandbox.createAssetRenderContext_({
+    mode: "omit_confirmed",
+    allowedKeys: [attachmentKey]
+  });
+  assert.deepEqual(
+    Array.from(sandbox.getAttachmentBlobsForTemplate_({ attachmentLink: attachment }, attachmentContext)),
+    []
+  );
+  assert.equal(attachmentContext.omittedAssets[0].kind, "attachment");
+});
+
+test("SendForm exposes only a conditional unavailable-file recovery action", () => {
+  assert.match(formSource, /id="assetRecoveryActions" class="asset-recovery-actions hidden"/);
+  assert.match(formSource, /requiresAssetConfirmation/);
+  assert.match(formSource, /context\.actionMode === "schedule" \? "Schedule" : "Send"/);
+  assert.match(formSource, /verb \+ " without " \+ noun/);
+  assert.match(formSource, /mode:\s*"omit_confirmed"/);
 });
 
 test("repository contains no GmailApp and tests never use live triggers or real mail", () => {

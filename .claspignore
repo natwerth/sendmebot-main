@@ -1,0 +1,12 @@
+.git/**
+.github/**
+tests/**
+installer/**
+scripts/**
+config/**
+release/**
+node_modules/**
+package.json
+package-lock.json
+.clasp*
+.DS_Store

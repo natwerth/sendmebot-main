@@ -424,13 +424,13 @@
           <div class="logo-wrap">
             <img
               class="sendmebot-logo"
-              src="https://drive.google.com/thumbnail?id=1FpfsgHc-kNBEUUxEqA7Y5xmpK3IdS1Yg&sz=w240"
-              alt="SendMeBot logo"
+              src="<?!= logoUrl ?>"
+              alt="<?!= brandName ?> logo"
             >
           </div>
 
           <div class="hero-title-wrap">
-            <h1>SendMeBot</h1>
+            <h1><?!= brandName ?></h1>
 
             <div class="ai-badge" title="Powered by Gemini">
               <div class="gemini-animation" aria-hidden="true">
@@ -446,11 +446,11 @@
         </p>
       </div>
 
-      <button class="assistant-banner" onclick="openGem()" aria-label="Open SendMeBot Assistant">
+      <button class="assistant-banner" onclick="openGem()" aria-label="Open <?!= brandName ?> Assistant">
         <div class="gemini-animation" aria-hidden="true">
           <div></div>
         </div>
-        <span class="assistant-banner-text">Open SendMeBot Assistant</span>
+        <span class="assistant-banner-text">Open <?!= brandName ?> Assistant</span>
       </button>
 
       <div class="card">
@@ -469,10 +469,10 @@
         <p class="card-title">Quick setup:</p>
         <ul>
           <li>Add recipients in <strong>Tracker</strong>.</li>
-          <li>Create emails with <strong>SendMeBot → Compose template</strong>.</li>
+          <li>Create emails with <strong><?!= brandName ?> → New template</strong>.</li>
           <li>Add approved senders and signatures in <strong>Senders</strong>.</li>
           <li>Add reusable image names and Drive links in the image table.</li>
-          <li>Use <strong>SendMeBot → Email selected now</strong> or <strong>Schedule selected</strong>.</li>
+          <li>Use <strong><?!= brandName ?> → Email selected now</strong> or <strong>Schedule selected</strong>.</li>
         </ul>
       </div>
 
@@ -510,7 +510,7 @@
 
     <script>
       const gemUrl = "<?!= gemUrl ?>";
-      const SENDMEBOT_LOGO_URL = "https://drive.google.com/thumbnail?id=1FpfsgHc-kNBEUUxEqA7Y5xmpK3IdS1Yg&sz=w240";
+      const SENDMEBOT_LOGO_URL = "<?!= logoUrl ?>";
 
       function openGem() {
         window.open(gemUrl, "_blank");

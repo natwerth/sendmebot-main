@@ -1,6 +1,13 @@
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu("SendMeBot")
+  try {
+    ensureSendMeBotInstallationRegistry_();
+  } catch (registryErr) {
+    Logger.log("INSTALLATION REGISTRY ERROR: " + (registryErr.message || registryErr));
+  }
+
+  const environment = getSendMeBotEnvironmentConfig_();
+  const menu = SpreadsheetApp.getUi()
+    .createMenu(environment.brandName)
     .addItem("Email selected now", "openEmailSelectedNowForm")
     .addItem("Schedule selected", "openScheduleSelectedForm")
     .addSeparator()
@@ -10,10 +17,13 @@ function onOpen() {
     .addItem("Sender profile", "openAddSenderForm")
     .addItem("Add image", "openAddImageForm")
     .addSeparator()
-    .addItem("Setup", "openSetupForm")
-    .addSeparator()
-    .addItem("SendMeBot Assistant", "openSendMeBotAssistant")
-    .addToUi();
+    .addItem("Setup", "openSetupForm");
+
+  if (environment.assistantUrl) {
+    menu.addSeparator().addItem(environment.brandName + " Assistant", "openSendMeBotAssistant");
+  }
+
+  menu.addToUi();
 }
 
 function onEdit(e) {
@@ -102,7 +112,8 @@ function openAddSenderForm() {
     imageAssets: sendersSheet ? getImageAssetsForComposer_(sendersSheet) : [],
     authenticatedEmail: authenticatedEmail,
     senderState: senderState,
-    blockingError: blockingError
+    blockingError: blockingError,
+    brand: getSendMeBotClientBrand_()
   });
 
   const html = template
@@ -137,8 +148,11 @@ function openSetupForm() {
 
 // --- Assistant sidebar ---
 function openSendMeBotAssistant() {
+  const environment = getSendMeBotEnvironmentConfig_();
   const template = HtmlService.createTemplateFromFile("AssistantSidebar");
-  template.gemUrl = "https://gemini.google.com/gem/6c4e76611b3f";
+  template.gemUrl = environment.assistantUrl;
+  template.logoUrl = environment.logoUrl;
+  template.brandName = environment.brandName;
 
   const html = template
     .evaluate()
@@ -147,17 +161,20 @@ function openSendMeBotAssistant() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-const TRACKER_SHEET_NAME = "Hires & Conversion - Intern";
-const DEFAULT_RECORD_ID_HEADER = "Student Name";
 const TRACKER_SHEET_PROPERTY = "SENDMEBOT_TRACKER_SHEET";
 const RECORD_ID_HEADER_PROPERTY = "SENDMEBOT_RECORD_ID_HEADER";
 
 function getSendMeBotConfig_(runtime) {
   const options = runtime || {};
   const properties = options.properties || PropertiesService.getDocumentProperties();
+  const environment = getSendMeBotEnvironmentConfig_(options);
   return {
-    trackerSheetName: String(properties.getProperty(TRACKER_SHEET_PROPERTY) || TRACKER_SHEET_NAME),
-    recordIdHeader: String(properties.getProperty(RECORD_ID_HEADER_PROPERTY) || DEFAULT_RECORD_ID_HEADER)
+    trackerSheetName: String(
+      properties.getProperty(TRACKER_SHEET_PROPERTY) || environment.defaultTrackerSheetName
+    ),
+    recordIdHeader: String(
+      properties.getProperty(RECORD_ID_HEADER_PROPERTY) || environment.defaultRecordIdHeader
+    )
   };
 }
 
@@ -166,13 +183,21 @@ function getSendMeBotSetupContext_() {
   const config = getSendMeBotConfig_();
   return {
     config: config,
-    sheets: ss.getSheets().map(sheet => ({
-      name: sheet.getName(),
-      headers: sheet.getLastColumn() > 0
-        ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
-            .map(value => String(value || "").trim()).filter(Boolean)
-        : []
-    }))
+    sheets: ss.getSheets()
+      .filter(sheet => sheet.getName() !== SENDMEBOT_INTERNAL_SHEET)
+      .map(sheet => {
+        const headers = sheet.getLastColumn() > 0
+          ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+              .map(value => String(value || "").trim()).filter(Boolean)
+          : [];
+        return {
+          name: sheet.getName(),
+          headers: headers,
+          hasSelectColumn: headers.some(value => normalize_(value) === "select"),
+          emailHeaders: headers.filter(value => /email/i.test(value))
+        };
+      }),
+    brand: getSendMeBotClientBrand_()
   };
 }
 
@@ -180,6 +205,7 @@ function saveSendMeBotSetup(formData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const trackerSheetName = String((formData && formData.trackerSheetName) || "").trim();
   const recordIdHeader = String((formData && formData.recordIdHeader) || "").trim();
+  const addSelectColumn = !!(formData && formData.addSelectColumn);
   const sheet = ss.getSheetByName(trackerSheetName);
   if (!sheet) throw new Error("Selected tracker sheet no longer exists.");
   if (!recordIdHeader) throw new Error("Record ID column is required.");
@@ -194,8 +220,14 @@ function saveSendMeBotSetup(formData) {
     throw new Error("Tracker headers must be unique before Setup can be saved.");
   }
 
-  const headers = getHeaders_(sheet);
-  if (!headers["select"]) throw new Error('Selected tracker sheet is missing the "Select" column.');
+  let headers = getHeaders_(sheet);
+  if (!headers["select"] && addSelectColumn) {
+    addSelectColumnToTracker_(sheet);
+    headers = getHeaders_(sheet);
+  }
+  if (!headers["select"]) {
+    throw new Error('Selected tracker sheet is missing the "Select" column.');
+  }
   if (!headers[normalize_(recordIdHeader)]) {
     throw new Error('Record ID column "' + recordIdHeader + '" was not found.');
   }
@@ -205,8 +237,10 @@ function saveSendMeBotSetup(formData) {
   try {
     PropertiesService.getDocumentProperties().setProperties({
       [TRACKER_SHEET_PROPERTY]: trackerSheetName,
-      [RECORD_ID_HEADER_PROPERTY]: recordIdHeader
+      [RECORD_ID_HEADER_PROPERTY]: recordIdHeader,
+      [SENDMEBOT_SETUP_VERSION_PROPERTY]: SENDMEBOT_SETUP_VERSION
     });
+    ensureSendMeBotInstallationRegistry_(ss);
   } finally {
     lock.releaseLock();
   }

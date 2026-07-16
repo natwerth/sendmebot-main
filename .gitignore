@@ -2,5 +2,11 @@
 node_modules/
 .env
 *.log
+.clasp.json
 .clasp.production.json
 .clasp.development.json
+.clasp.template-*.json
+installer/.clasp*.json
+config/targets.local.json
+config/environments.local.json
+installer/dist/

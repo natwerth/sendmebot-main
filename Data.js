@@ -290,13 +290,14 @@ function getImageAssets_(ss) {
 }
 
 
-function getImageHtmlForAsset_(asset, inlineImages) {
+function getImageHtmlForAsset_(asset, inlineImages, assetContext) {
   if (!asset || !asset.link) return "";
 
   const cid = getAssetCid_(asset.name);
 
   if (!inlineImages[cid]) {
-    const blob = getDriveImageBlob_(asset.link);
+    const blob = getDriveImageBlob_(asset.link, asset, assetContext);
+    if (!blob) return "";
     inlineImages[cid] = blob;
   }
 
@@ -319,17 +320,53 @@ function getAssetCid_(name) {
 }
 
 
-function getDriveImageBlob_(driveLinkOrId) {
+function getImageAssetKey_(asset) {
+  const item = asset || {};
+  const fileId = extractDriveFileId_(item.link);
+  return "image:" + normalizeTemplateKey_(item.name) + ":" + (fileId || String(item.link || ""));
+}
+
+
+function getDriveImageBlob_(driveLinkOrId, asset, assetContext) {
   const fileId = extractDriveFileId_(driveLinkOrId);
+  const item = asset || { name: "Image", link: driveLinkOrId };
+  const key = getImageAssetKey_(item);
 
   if (!fileId) {
-    throw new Error("Could not extract Drive file ID from image link.");
+    if (shouldOmitAssetFailure_(assetContext, key)) {
+      recordOmittedAsset_(assetContext, {
+        key: key,
+        kind: "image",
+        label: item.name || "Image",
+        reason: "The image link does not contain a valid Drive file ID."
+      });
+      return null;
+    }
+    throw new Error(
+      'Could not access image "' + (item.name || "Image") + '" because its Drive link is invalid.'
+    );
   }
 
-  const file = DriveApp.getFileById(fileId);
-  const blob = file.getBlob();
+  try {
+    const file = DriveApp.getFileById(fileId);
+    const blob = file.getBlob();
 
-  return blob.setName(file.getName());
+    return blob.setName(file.getName());
+  } catch (err) {
+    if (shouldOmitAssetFailure_(assetContext, key)) {
+      recordOmittedAsset_(assetContext, {
+        key: key,
+        kind: "image",
+        label: item.name || "Image",
+        reason: "The Drive image is unavailable to the sending account."
+      });
+      return null;
+    }
+    throw new Error(
+      'Could not access image "' + (item.name || "Image") +
+      '". Check its Drive link and sharing permissions.'
+    );
+  }
 }
 
 

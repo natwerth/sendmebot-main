@@ -1,0 +1,59 @@
+{
+  "timeZone": "America/Chicago",
+  "runtimeVersion": "V8",
+  "exceptionLogging": "STACKDRIVER",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.currentonly",
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/script.projects",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp",
+    "https://www.googleapis.com/auth/userinfo.email"
+  ],
+  "urlFetchWhitelist": [
+    "https://script.googleapis.com/",
+    "https://www.natwerth.com/sendmebot/"
+  ],
+  "addOns": {
+    "common": {
+      "name": "SendMeBot Installer",
+      "logoUrl": "https://www.gstatic.com/images/icons/material/system/2x/send_black_48dp.png",
+      "layoutProperties": {
+        "primaryColor": "#356854"
+      },
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "openLinkUrlPrefixes": [
+        "https://docs.google.com/spreadsheets/",
+        "https://script.google.com/home/usersettings",
+        "https://www.natwerth.com/sendmebot/"
+      ]
+    },
+    "sheets": {
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "onFileScopeGrantedTrigger": {
+        "runFunction": "onFileScopeGranted"
+      }
+    }
+  },
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Drive",
+        "version": "v3",
+        "serviceId": "drive"
+      },
+      {
+        "userSymbol": "Sheets",
+        "version": "v4",
+        "serviceId": "sheets"
+      }
+    ]
+  }
+}

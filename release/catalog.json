@@ -1,0 +1,8 @@
+{
+  "appId": "sendmebot",
+  "releases": {
+    "1.0.0": {
+      "payloadSha256": "RK-2GNOAq7kxEkfVEfcSOoyMbsI6Q0v-Ht28NCCpq5k"
+    }
+  }
+}

@@ -139,6 +139,14 @@
         color: var(--success);
       }
 
+      .asset-recovery-actions {
+        margin: 10px 0;
+      }
+
+      .asset-recovery-actions button {
+        width: 100%;
+      }
+
       .schedule-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 96px;
@@ -396,6 +404,17 @@
 
       <div id="completionMessage" class="form-message hidden" role="status" aria-live="polite"></div>
 
+      <div id="assetRecoveryActions" class="asset-recovery-actions hidden">
+        <button
+          id="assetOverrideButton"
+          type="button"
+          class="secondary"
+          onclick="sendWithoutUnavailableAssets()"
+        >
+          Continue without unavailable files
+        </button>
+      </div>
+
       <div class="button-row">
         <button id="cancelButton" class="secondary" onclick="google.script.host.close()">Cancel</button>
         <button id="submitButton" class="primary" onclick="submitForm()">OK</button>
@@ -407,6 +426,7 @@
       let selectedRowCount = Number(context.selectedRowCount || 0);
       let isSubmitting = false;
       let lastTrackingTemplate = "";
+      let pendingAssetConfirmation = null;
 
       function initializeForm() {
         const rowLabel = context.actionMode === "schedule"
@@ -418,7 +438,10 @@
         document.getElementById("selectedRowCount").textContent = selectedRowCount;
 
         populateSelect("template", context.templates || []);
-        document.getElementById("template").addEventListener("change", renderTrackingOption);
+        document.getElementById("template").addEventListener("change", function() {
+          clearAssetConfirmation();
+          renderTrackingOption();
+        });
         renderTrackingOption();
         renderSenderState();
         populateRecipientSelect();
@@ -818,6 +841,7 @@
         google.script.run
           .withSuccessHandler(function(result) {
             context.senderState = result.senderState;
+            clearAssetConfirmation();
             renderSenderState();
             button.disabled = false;
             button.textContent = "Save profile";
@@ -893,7 +917,7 @@
         }
       }
 
-      function submitForm() {
+      function submitForm(assetPolicy) {
         if (isSubmitting) return;
 
         const submitButton = document.getElementById("submitButton");
@@ -944,6 +968,7 @@
         }
 
         isSubmitting = true;
+        document.getElementById("assetRecoveryActions").classList.add("hidden");
         submitButton.disabled = true;
         cancelButton.disabled = true;
 
@@ -960,6 +985,7 @@
           ccFields: ccFields,
           bccFields: bccFields,
           createTrackingColumn: document.getElementById("createTrackingColumn").checked,
+          assetPolicy: assetPolicy || { mode: "strict", issueSetId: "" },
           scheduledForIso: action === "schedule" ? schedulePayload.scheduledForIso : "",
           scheduledTimeZone: action === "schedule" ? schedulePayload.scheduledTimeZone : "",
           scheduledDisplayText: action === "schedule" ? schedulePayload.scheduledDisplayText : ""
@@ -967,6 +993,16 @@
 
         google.script.run
           .withSuccessHandler(function(result) {
+            if (result && result.requiresAssetConfirmation) {
+              isSubmitting = false;
+              pendingAssetConfirmation = result;
+              renderAssetConfirmation(result);
+              cancelButton.disabled = false;
+              setFormDisabled(false);
+              updateSubmitButton();
+              return;
+            }
+
             const failed = result && result.failed ? Number(result.failed) : 0;
             const sent = result && result.sent ? Number(result.sent) : 0;
             const scheduled = result && result.scheduled ? Number(result.scheduled) : 0;
@@ -1009,6 +1045,42 @@
           .queueSendFormJob(formData);
       }
 
+      function renderAssetConfirmation(result) {
+        const issues = Array.isArray(result.assetIssues) ? result.assetIssues : [];
+        const kinds = {};
+        issues.forEach(function(issue) { kinds[issue.kind] = true; });
+
+        const element = document.getElementById("completionMessage");
+        element.classList.remove("hidden", "success");
+        element.classList.add("error");
+        element.textContent = "Some Drive files are unavailable:\n" + issues.map(function(issue) {
+          return "• " + issue.label + ": " + issue.reason;
+        }).join("\n");
+
+        let noun = "unavailable files";
+        if (kinds.image && !kinds.attachment) noun = "unavailable images";
+        if (kinds.attachment && !kinds.image) noun = "unavailable attachments";
+        const verb = context.actionMode === "schedule" ? "Schedule" : "Send";
+        document.getElementById("assetOverrideButton").textContent = verb + " without " + noun;
+        document.getElementById("assetRecoveryActions").classList.remove("hidden");
+      }
+
+      function sendWithoutUnavailableAssets() {
+        if (!pendingAssetConfirmation) return;
+        submitForm({
+          mode: "omit_confirmed",
+          issueSetId: pendingAssetConfirmation.issueSetId
+        });
+      }
+
+      function clearAssetConfirmation() {
+        pendingAssetConfirmation = null;
+        document.getElementById("assetRecoveryActions").classList.add("hidden");
+        const element = document.getElementById("completionMessage");
+        element.classList.add("hidden");
+        element.textContent = "";
+      }
+
       function setSubmitButtonState(state, text) {
         const submitButton = document.getElementById("submitButton");
 
@@ -1035,6 +1107,7 @@
         document.getElementById("template").disabled = disabled;
         document.getElementById("toField").disabled = disabled;
         document.getElementById("createTrackingColumn").disabled = disabled;
+        document.getElementById("assetOverrideButton").disabled = disabled;
 
         const scheduleDate = document.getElementById("scheduleDate");
         const scheduleTime = document.getElementById("scheduleTime");

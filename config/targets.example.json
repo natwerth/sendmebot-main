@@ -1,0 +1,38 @@
+{
+  "bound-dev": {
+    "environment": "development",
+    "kind": "bound",
+    "projectFile": ".clasp.development.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  },
+  "bound-prod": {
+    "environment": "production",
+    "kind": "bound",
+    "projectFile": ".clasp.production.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  },
+  "template-dev": {
+    "environment": "development",
+    "kind": "template",
+    "projectFile": ".clasp.template-development.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  },
+  "template-prod": {
+    "environment": "production",
+    "kind": "template",
+    "projectFile": ".clasp.template-production.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  },
+  "addon-dev": {
+    "environment": "development",
+    "kind": "addon",
+    "projectFile": "installer/.clasp.development.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  },
+  "addon-prod": {
+    "environment": "production",
+    "kind": "addon",
+    "projectFile": "installer/.clasp.production.json",
+    "expectedScriptId": "REPLACE_LOCALLY"
+  }
+}
