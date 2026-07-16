@@ -1,4 +1,4 @@
-const SENDMEBOT_INSTALLER_VERSION = "1.1.0";
+const SENDMEBOT_INSTALLER_VERSION = "1.1.1";
 const SENDMEBOT_RESERVED_SHEET_NAMES = [
   "Tracker", "Templates", "Senders", "Sent", "_SendMeBot"
 ];
@@ -40,13 +40,29 @@ function getInstallerFormValues_(event, key) {
 }
 
 
+function getInstallerActionParameter_(event, key) {
+  const commonParameters = event && event.commonEventObject && event.commonEventObject.parameters;
+  const legacyParameters = event && event.parameters;
+  return normalizeInstallerValue_(
+    commonParameters && commonParameters[key] !== undefined
+      ? commonParameters[key]
+      : legacyParameters && legacyParameters[key]
+  );
+}
+
+
 function getInstallerSheetsContext_(event) {
   const sheets = event && event.sheets ? event.sheets : {};
-  const hasFileScope = sheets.addonHasFileScopePermission === true;
+  const eventHasFileScope = sheets.addonHasFileScopePermission === true;
+  const actionSpreadsheetId = getInstallerActionParameter_(event, "sourceSpreadsheetId");
+  const actionSpreadsheetName = getInstallerActionParameter_(event, "sourceSpreadsheetName");
+  const spreadsheetId = eventHasFileScope
+    ? normalizeInstallerValue_(sheets.id)
+    : actionSpreadsheetId;
   return {
-    hasFileScope: hasFileScope,
-    spreadsheetId: hasFileScope ? normalizeInstallerValue_(sheets.id) : "",
-    title: hasFileScope ? normalizeInstallerValue_(sheets.title) : ""
+    hasFileScope: !!spreadsheetId,
+    spreadsheetId: spreadsheetId,
+    title: eventHasFileScope ? normalizeInstallerValue_(sheets.title) : actionSpreadsheetName
   };
 }
 

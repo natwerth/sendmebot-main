@@ -34,6 +34,10 @@ function buildInstallerHomeCard_(e) {
       .setText("Grant access to this spreadsheet")
       .setOnClickAction(CardService.newAction().setFunctionName("requestCurrentFileScope")));
   } else {
+    const migrationParameters = {
+      sourceSpreadsheetId: sheetsContext.spreadsheetId,
+      sourceSpreadsheetName: sourceName
+    };
     section
       .setHeader("Install SendMeBot into " + sourceName)
       .addWidget(CardService.newTextParagraph().setText(
@@ -46,7 +50,9 @@ function buildInstallerHomeCard_(e) {
       .addWidget(CardService.newTextButton()
         .setText("Choose sheets to install")
         .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-        .setOnClickAction(CardService.newAction().setFunctionName("showWorkbookMigrationOptions")));
+        .setOnClickAction(CardService.newAction()
+          .setFunctionName("showWorkbookMigrationOptions")
+          .setParameters(migrationParameters)));
   }
 
   const builder = CardService.newCardBuilder()
@@ -129,7 +135,12 @@ function showWorkbookMigrationOptions(e) {
 
   section.addWidget(CardService.newTextButton()
     .setText("Create installed copy")
-    .setOnClickAction(CardService.newAction().setFunctionName("installIntoCurrentWorkbook")));
+    .setOnClickAction(CardService.newAction()
+      .setFunctionName("installIntoCurrentWorkbook")
+      .setParameters({
+        sourceSpreadsheetId: ss.getId(),
+        sourceSpreadsheetName: ss.getName()
+      })));
 
   const card = CardService.newCardBuilder()
     .setHeader(CardService.newCardHeader().setTitle("SendMeBot Installer"))

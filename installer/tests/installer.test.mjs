@@ -123,6 +123,28 @@ assert.equal(grantedContext.spreadsheetId, "sheet-id");
 assert.equal(grantedContext.title, "Authorized workbook");
 assert.equal(sandbox.getCurrentInstallerSpreadsheet_(grantedEvent).id, "sheet-id");
 
+const cardActionEvent = {
+  commonEventObject: {
+    parameters: {
+      sourceSpreadsheetId: "sheet-id-from-action",
+      sourceSpreadsheetName: "Authorized workbook"
+    }
+  }
+};
+const cardActionContext = sandbox.getInstallerSheetsContext_(cardActionEvent);
+assert.equal(cardActionContext.hasFileScope, true);
+assert.equal(cardActionContext.spreadsheetId, "sheet-id-from-action");
+assert.equal(cardActionContext.title, "Authorized workbook");
+assert.equal(sandbox.getCurrentInstallerSpreadsheet_(cardActionEvent).id, "sheet-id-from-action");
+
+const legacyActionEvent = {
+  parameters: {
+    sourceSpreadsheetId: "legacy-action-id",
+    sourceSpreadsheetName: "Legacy action workbook"
+  }
+};
+assert.equal(sandbox.getCurrentInstallerSpreadsheet_(legacyActionEvent).id, "legacy-action-id");
+
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "appsscript.json"), "utf8"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/script.projects"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/drive.file"));
@@ -134,6 +156,8 @@ assert.match(allSource, /Install SendMeBot into /);
 assert.match(allSource, /sourceName \+ " — SendMeBot"/);
 assert.match(allSource, /destinationWorkbookName/);
 assert.match(allSource, /markSendMeBotOnboarding_/);
+assert.match(allSource, /setParameters\(migrationParameters\)/);
+assert.match(allSource, /commonEventObject && event\.commonEventObject\.parameters/);
 assert.match(allSource, /original spreadsheet will not be changed/i);
 assert.doesNotMatch(allSource, /getActiveSpreadsheet\s*\(/);
 assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);
