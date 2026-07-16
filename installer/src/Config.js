@@ -1,4 +1,4 @@
-const SENDMEBOT_INSTALLER_VERSION = "1.1.2";
+const SENDMEBOT_INSTALLER_VERSION = "1.1.3";
 const SENDMEBOT_RESERVED_SHEET_NAMES = [
   "Tracker", "Templates", "Senders", "Sent", "_SendMeBot"
 ];
@@ -70,9 +70,26 @@ function getInstallerSheetsContext_(event) {
 function getCurrentInstallerSpreadsheet_(event) {
   const context = getInstallerSheetsContext_(event);
   if (!context.hasFileScope || !context.spreadsheetId) return null;
+
+  try {
+    const active = SpreadsheetApp.getActiveSpreadsheet();
+    if (
+      active &&
+      typeof active.getId === "function" &&
+      normalizeInstallerValue_(active.getId()) === context.spreadsheetId
+    ) {
+      return active;
+    }
+  } catch (activeErr) {
+    console.log("Could not resolve the authorized active spreadsheet: " + (activeErr.message || activeErr));
+  }
+
   try {
     return SpreadsheetApp.openById(context.spreadsheetId);
   } catch (err) {
+    console.log(
+      "Could not open authorized spreadsheet " + context.spreadsheetId + ": " + (err.message || err)
+    );
     return null;
   }
 }

@@ -27,6 +27,7 @@ const sandbox = {
   JSON,
   SpreadsheetApp: {
     ProtectionType: { RANGE: "RANGE", SHEET: "SHEET" },
+    getActiveSpreadsheet: () => null,
     openById: id => ({ id })
   },
   Utilities: {
@@ -151,6 +152,20 @@ const legacyActionEvent = {
 };
 assert.equal(sandbox.getCurrentInstallerSpreadsheet_(legacyActionEvent).id, "legacy-action-id");
 
+const activeWorkbook = { getId: () => "active-sheet-id" };
+sandbox.SpreadsheetApp.getActiveSpreadsheet = () => activeWorkbook;
+sandbox.SpreadsheetApp.openById = () => { throw new Error("openById should not be required"); };
+assert.equal(sandbox.getCurrentInstallerSpreadsheet_({
+  commonEventObject: {
+    parameters: {
+      sourceSpreadsheetId: "active-sheet-id",
+      sourceSpreadsheetName: "Active workbook"
+    }
+  }
+}), activeWorkbook);
+sandbox.SpreadsheetApp.getActiveSpreadsheet = () => null;
+sandbox.SpreadsheetApp.openById = id => ({ id });
+
 const fullWorkbook = { getId: () => "full-id", getName: () => "Full workbook" };
 let fullInstallIds = [];
 sandbox.getCurrentInstallerSpreadsheet_ = () => fullWorkbook;
@@ -193,7 +208,8 @@ assert.match(allSource, /Choose which sheets to copy/);
 assert.match(allSource, /copy all worksheet tabs/i);
 assert.match(allSource, /buildEntireWorkbookWarningResponse_/);
 assert.match(allSource, /original spreadsheet will not be changed/i);
-assert.doesNotMatch(allSource, /getActiveSpreadsheet\s*\(/);
+assert.match(allSource, /getActiveSpreadsheet\s*\(\)/);
+assert.match(allSource, /active\.getId\(\)[\s\S]*context\.spreadsheetId/);
 assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);
 
 console.log("PASS installer uses explicit file scope, scans safely, handles collisions, and contains no legacy project injection");
