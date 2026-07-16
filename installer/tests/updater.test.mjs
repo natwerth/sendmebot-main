@@ -93,8 +93,11 @@ assert.throws(
 );
 
 assert.equal(BOUND_PAYLOAD_FILES.some(file => /tests|\.clasp|installer/.test(file)), false);
+assert.ok(BOUND_PAYLOAD_FILES.includes("Walkthrough.js"));
+assert.ok(BOUND_PAYLOAD_FILES.includes("WalkthroughForm.html"));
 const catalogFile = JSON.parse(fs.readFileSync(path.resolve(ROOT, "..", "release", "catalog.json"), "utf8"));
 assert.notEqual(catalogFile.releases["1.0.0"].payloadSha256, "PENDING");
+assert.notEqual(catalogFile.releases["1.1.0"].payloadSha256, "PENDING");
 assert.equal(payloadHash(payloadFiles), crypto.createHash("sha256")
   .update(JSON.stringify(payloadFiles.slice().sort((a, b) => a.name.localeCompare(b.name))))
   .digest("base64url"));

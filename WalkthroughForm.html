@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= includeHtml_("Modal") ?>
+    <style>
+      body { padding: 20px; }
+      .step { display: none; }
+      .step.active { display: block; }
+      .eyebrow { color: #5f6368; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+      h1 { font-size: 24px; margin: 8px 0 12px; }
+      h2 { font-size: 19px; margin: 8px 0 12px; }
+      .lead { color: #5f6368; font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
+      .progress { display: flex; gap: 6px; margin-bottom: 18px; }
+      .dot { width: 28px; height: 4px; border-radius: 2px; background: #dadce0; }
+      .dot.active, .dot.done { background: #356854; }
+      .panel { background: #f8fafd; border: 1px solid #e1e5e9; border-radius: 10px; padding: 14px; margin: 12px 0; }
+      .check { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; color: #3c4043; font-size: 13px; }
+      .check input { width: 16px; height: 16px; margin: 1px 0 0; }
+      textarea { width: 100%; min-height: 88px; resize: vertical; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 6px; font: 14px Arial, sans-serif; }
+      textarea:focus { border: 2px solid #1a73e8; outline: none; }
+      .ready { color: #137333; font-size: 13px; }
+      .warning { color: #8a4b08; font-size: 13px; }
+      .summary li { margin-bottom: 8px; }
+      .button-row { justify-content: space-between; }
+      .button-right { display: flex; gap: 8px; margin-left: auto; }
+      button.primary { background: #356854; color: #fff; }
+      button.primary:hover { background: #294f41; }
+      #globalError { margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="globalError" class="message error" role="alert"></div>
+
+    <section id="step-welcome" class="step active">
+      <div class="eyebrow">SendMeBot setup</div>
+      <h1>Welcome to SendMeBot</h1>
+      <p class="lead">
+        We’ll connect your tracker, verify recipients, set up your sender profile,
+        confirm an email template, and send you a private test message.
+      </p>
+      <div class="panel">
+        Your original spreadsheet has not been changed. This workbook is your SendMeBot-enabled copy.
+      </div>
+      <div class="button-row">
+        <button class="secondary" onclick="google.script.host.close()">Finish later</button>
+        <button id="beginButton" class="primary" onclick="beginSetup()">Begin setup</button>
+      </div>
+    </section>
+
+    <section id="step-tracker" class="step">
+      <div class="progress"><span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="eyebrow">Step 1 of 4</div>
+      <h2>Connect your tracker</h2>
+      <p class="lead">Choose the sheet containing the records you’ll email.</p>
+      <div class="field">
+        <label for="trackerSheet">Tracker sheet</label>
+        <select id="trackerSheet" onchange="renderTrackerFields()"></select>
+      </div>
+      <div class="field">
+        <label for="recordIdHeader">Record ID column</label>
+        <select id="recordIdHeader" onchange="renderNewRecordField()"></select>
+        <div class="helper">A stable value used to find the same record after rows are sorted.</div>
+      </div>
+      <div id="newRecordField" class="field hidden">
+        <label for="newRecordHeader">New Record ID column name</label>
+        <input id="newRecordHeader" value="Name">
+      </div>
+      <label id="selectOption" class="check hidden">
+        <input id="addSelectColumn" type="checkbox" checked>
+        <span>Add the required <strong>Select</strong> checkbox column.</span>
+      </label>
+      <div id="recipientReady" class="panel"></div>
+      <label id="emailOption" class="check hidden">
+        <input id="addEmailColumn" type="checkbox" checked>
+        <span>Append an <strong>Email</strong> recipient column.</span>
+      </label>
+      <div class="button-row">
+        <button class="secondary" onclick="google.script.host.close()">Finish later</button>
+        <div class="button-right"><button id="trackerButton" class="primary" onclick="saveTracker()">Save and continue</button></div>
+      </div>
+    </section>
+
+    <section id="step-sender" class="step">
+      <div class="progress"><span class="dot done"></span><span class="dot active"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="eyebrow">Step 2 of 4</div>
+      <h2>Set up your sender</h2>
+      <p class="lead">SendMeBot sends through your authenticated Google account.</p>
+      <div class="field">
+        <label for="senderName">Sender name</label>
+        <input id="senderName" placeholder="Your name or team name">
+      </div>
+      <div class="field">
+        <label for="senderEmail">Sender email</label>
+        <input id="senderEmail" readonly>
+      </div>
+      <div class="field">
+        <label for="senderSignature">Signature (optional)</label>
+        <textarea id="senderSignature" placeholder="Thanks,&#10;Your name"></textarea>
+      </div>
+      <div id="senderStatus" class="ready"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="showStep('tracker')">Back</button>
+        <div class="button-right"><button id="senderButton" class="primary" onclick="saveSender()">Save and continue</button></div>
+      </div>
+    </section>
+
+    <section id="step-template" class="step">
+      <div class="progress"><span class="dot done"></span><span class="dot done"></span><span class="dot active"></span><span class="dot"></span></div>
+      <div class="eyebrow">Step 3 of 4</div>
+      <h2>Confirm an email template</h2>
+      <div id="existingTemplates" class="panel hidden"></div>
+      <div id="newTemplateFields">
+        <p class="lead">Create the first reusable email template for this workbook.</p>
+        <div class="field"><label for="templateName">Template name</label><input id="templateName" value="Welcome"></div>
+        <div class="field"><label for="templateSubject">Subject</label><input id="templateSubject" value="Hello {{Name}}"></div>
+        <div class="field"><label for="templateBody">Body</label><textarea id="templateBody">Hi {{Name}},
+
+This is a message from SendMeBot.</textarea></div>
+        <div class="helper">Use double braces around tracker columns, such as {{Name}}.</div>
+      </div>
+      <div class="button-row">
+        <button class="secondary" onclick="showStep('sender')">Back</button>
+        <div class="button-right"><button id="templateButton" class="primary" onclick="saveTemplateStep()">Continue</button></div>
+      </div>
+    </section>
+
+    <section id="step-test" class="step">
+      <div class="progress"><span class="dot done"></span><span class="dot done"></span><span class="dot done"></span><span class="dot active"></span></div>
+      <div class="eyebrow">Step 4 of 4</div>
+      <h2>Send your readiness test</h2>
+      <p class="lead">
+        SendMeBot will email only you. It will merge values from the first tracker row with a Record ID,
+        or safe sample values when the tracker has no records.
+      </p>
+      <div id="readinessSummary" class="panel summary"></div>
+      <div class="button-row">
+        <button class="secondary" onclick="showStep('template')">Back</button>
+        <div class="button-right"><button id="testButton" class="primary" onclick="sendTest()">Send test email</button></div>
+      </div>
+    </section>
+
+    <section id="step-complete" class="step">
+      <div class="eyebrow">Setup complete</div>
+      <h1>SendMeBot is ready</h1>
+      <p id="completeMessage" class="lead"></p>
+      <div class="panel">
+        Select records in your tracker, then use <strong>SendMeBot → Email selected now</strong>.
+      </div>
+      <div class="button-row">
+        <div class="button-right"><button class="primary" onclick="google.script.host.close()">Done</button></div>
+      </div>
+    </section>
+
+    <script>
+      let context = null;
+
+      function beginSetup() {
+        setBusy("beginButton", true, "Loading...");
+        clearError();
+        google.script.run
+          .withSuccessHandler(function(result) {
+            context = result;
+            initializeTracker();
+            initializeSender();
+            initializeTemplate();
+            showStep("tracker");
+          })
+          .withFailureHandler(handleFailure)
+          .getSendMeBotWalkthroughContext();
+      }
+
+      function showStep(name) {
+        document.querySelectorAll(".step").forEach(function(step) { step.classList.remove("active"); });
+        document.getElementById("step-" + name).classList.add("active");
+        clearError();
+      }
+
+      function initializeTracker() {
+        const select = document.getElementById("trackerSheet");
+        select.innerHTML = "";
+        (context.sheets || []).forEach(function(sheet) {
+          const option = document.createElement("option");
+          option.value = sheet.name;
+          option.textContent = sheet.name;
+          select.appendChild(option);
+        });
+        select.value = context.registry.suggestedTrackerSheet || context.config.trackerSheetName || "";
+        renderTrackerFields();
+      }
+
+      function selectedSheet() {
+        return (context.sheets || []).find(function(sheet) {
+          return sheet.name === document.getElementById("trackerSheet").value;
+        });
+      }
+
+      function renderTrackerFields() {
+        const sheet = selectedSheet();
+        const record = document.getElementById("recordIdHeader");
+        record.innerHTML = "";
+        ((sheet && sheet.headers) || []).forEach(function(header) {
+          const option = document.createElement("option");
+          option.value = header;
+          option.textContent = header;
+          record.appendChild(option);
+        });
+        const createOption = document.createElement("option");
+        createOption.value = "__create__";
+        createOption.textContent = "Add a new Record ID column…";
+        record.appendChild(createOption);
+        const configuredRecordHeader = String(context.config.recordIdHeader || "").toLowerCase();
+        const matchingRecordHeader = sheet && sheet.headers.find(function(header) {
+          return header.toLowerCase() === configuredRecordHeader;
+        });
+        const preferred = matchingRecordHeader ||
+          (sheet && sheet.headers.length ? sheet.headers[0] : "__create__");
+        record.value = preferred;
+        document.getElementById("selectOption").classList.toggle("hidden", !!(sheet && sheet.hasSelectColumn));
+        const recipients = (sheet && sheet.recipientFields) || [];
+        document.getElementById("recipientReady").innerHTML = recipients.length
+          ? '<span class="ready">Recipient fields found:</span> ' + recipients.map(function(item) { return escapeText(item.header); }).join(", ")
+          : '<span class="warning">No email-recipient column was detected.</span>';
+        document.getElementById("emailOption").classList.toggle("hidden", recipients.length > 0);
+        renderNewRecordField();
+      }
+
+      function renderNewRecordField() {
+        document.getElementById("newRecordField").classList.toggle(
+          "hidden",
+          document.getElementById("recordIdHeader").value !== "__create__"
+        );
+      }
+
+      function saveTracker() {
+        const recordSelect = document.getElementById("recordIdHeader");
+        const createRecord = recordSelect.value === "__create__";
+        const recordHeader = createRecord
+          ? document.getElementById("newRecordHeader").value.trim()
+          : recordSelect.value;
+        if (!recordHeader) return showError("Enter a Record ID column name.");
+        runButton("trackerButton", "Saving...", "Save and continue", "saveWalkthroughTrackerSetup", {
+          trackerSheetName: document.getElementById("trackerSheet").value,
+          recordIdHeader: recordHeader,
+          createRecordIdColumn: createRecord,
+          addSelectColumn: document.getElementById("addSelectColumn").checked,
+          addEmailColumn: document.getElementById("addEmailColumn").checked
+        }, function(result) {
+          context = result.context;
+          initializeTracker();
+          initializeSender();
+          initializeTemplate();
+          showStep("sender");
+        });
+      }
+
+      function initializeSender() {
+        const record = context.senderState && context.senderState.record;
+        document.getElementById("senderEmail").value = context.authenticatedEmail || "";
+        document.getElementById("senderName").value = record ? record.name || "" : "";
+        document.getElementById("senderSignature").value = record ? record.signature || "" : "";
+        document.getElementById("senderStatus").textContent = record
+          ? "Your current sender profile is ready. You can confirm or update it."
+          : (context.senderError || "");
+      }
+
+      function saveSender() {
+        const name = document.getElementById("senderName").value.trim();
+        if (!name) return showError("Sender name is required.");
+        runButton("senderButton", "Saving...", "Save and continue", "saveWalkthroughSenderProfile", {
+          name: name,
+          email: document.getElementById("senderEmail").value,
+          signature: escapeText(document.getElementById("senderSignature").value).replace(/\n/g, "<br>")
+        }, function(result) {
+          context = result.context;
+          initializeTemplate();
+          showStep("template");
+        });
+      }
+
+      function initializeTemplate() {
+        const existing = context.templates || [];
+        document.getElementById("existingTemplates").classList.toggle("hidden", !existing.length);
+        document.getElementById("newTemplateFields").classList.toggle("hidden", !!existing.length);
+        document.getElementById("existingTemplates").innerHTML = existing.length
+          ? '<span class="ready">Template ready:</span> ' + existing.map(escapeText).join(", ")
+          : "";
+        if (!existing.length) {
+          const recordHeader = context.config.recordIdHeader || "Name";
+          document.getElementById("templateSubject").value = "Hello {{" + recordHeader + "}}";
+          document.getElementById("templateBody").value =
+            "Hi {{" + recordHeader + "}},\n\nThis is a message from SendMeBot.";
+        }
+        document.getElementById("templateButton").textContent = existing.length ? "Continue" : "Save and continue";
+      }
+
+      function saveTemplateStep() {
+        if ((context.templates || []).length) {
+          renderReadiness();
+          return showStep("test");
+        }
+        const form = {
+          name: document.getElementById("templateName").value,
+          subject: escapeText(document.getElementById("templateSubject").value),
+          body: escapeText(document.getElementById("templateBody").value).replace(/\n/g, "<br>")
+        };
+        runButton("templateButton", "Saving...", "Save and continue", "saveWalkthroughTemplate", form, function(result) {
+          context = result.context;
+          renderReadiness();
+          showStep("test");
+        });
+      }
+
+      function renderReadiness() {
+        const items = [
+          "Tracker: " + context.config.trackerSheetName,
+          "Record ID: " + context.config.recordIdHeader,
+          "Sender: " + context.authenticatedEmail,
+          "Templates available: " + (context.templates || []).length
+        ];
+        document.getElementById("readinessSummary").innerHTML = "<ul>" + items.map(function(item) {
+          return "<li>" + escapeText(item) + "</li>";
+        }).join("") + "</ul>";
+      }
+
+      function sendTest() {
+        runButton("testButton", "Sending...", "Send test email", "sendWalkthroughTestEmail", null, function(result) {
+          document.getElementById("completeMessage").textContent =
+            "A test email was sent to " + result.recipient + ".";
+          showStep("complete");
+        });
+      }
+
+      function runButton(id, busyText, readyText, method, data, success) {
+        clearError();
+        setBusy(id, true, busyText);
+        let runner = google.script.run
+          .withSuccessHandler(function(result) { setBusy(id, false, readyText); success(result); })
+          .withFailureHandler(function(error) { setBusy(id, false, readyText); handleFailure(error); });
+        const calls = {
+          saveWalkthroughTrackerSetup: function() { runner.saveWalkthroughTrackerSetup(data); },
+          saveWalkthroughSenderProfile: function() { runner.saveWalkthroughSenderProfile(data); },
+          saveWalkthroughTemplate: function() { runner.saveWalkthroughTemplate(data); },
+          sendWalkthroughTestEmail: function() { runner.sendWalkthroughTestEmail(); }
+        };
+        if (!calls[method]) return handleFailure(new Error("Unknown walkthrough action."));
+        calls[method]();
+      }
+
+      function setBusy(id, busy, text) {
+        const button = document.getElementById(id);
+        if (!button) return;
+        button.disabled = busy;
+        button.textContent = text;
+      }
+
+      function handleFailure(error) {
+        setBusy("beginButton", false, "Begin setup");
+        showError(error && error.message ? error.message : String(error || "Setup failed."));
+      }
+
+      function clearError() { document.getElementById("globalError").textContent = ""; }
+      function showError(message) { document.getElementById("globalError").textContent = message || "Something went wrong."; }
+      function escapeText(value) {
+        return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+      }
+    </script>
+  </body>
+</html>

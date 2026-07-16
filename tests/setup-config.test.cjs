@@ -11,7 +11,10 @@ const codeSource = fs.readFileSync(path.join(ROOT, "Code.js"), "utf8");
 const workbookSetupSource = fs.readFileSync(path.join(ROOT, "Setup.js"), "utf8");
 const setupSource = fs.readFileSync(path.join(ROOT, "SetupForm.html"), "utf8");
 const modalSource = fs.readFileSync(path.join(ROOT, "Modal.html"), "utf8");
-const modalFiles = ["AddImage.html", "AddSender.html", "SendForm.html", "SetupForm.html", "TemplateForm.html"];
+const modalFiles = [
+  "AddImage.html", "AddSender.html", "SendForm.html", "SetupForm.html", "TemplateForm.html",
+  "WalkthroughForm.html"
+];
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
@@ -170,6 +173,49 @@ test("setup source is idempotent, avoids native tables, and maintains a hidden i
   assert.match(workbookSetupSource, /ScriptApp\.getScriptId\(\)/);
   assert.match(workbookSetupSource, /hideSheet\(\)/);
   assert.doesNotMatch(workbookSetupSource, /Sheets\.Spreadsheets|addTable/);
+});
+
+test("installation registry refresh preserves onboarding metadata", () => {
+  let written = [];
+  const registrySheet = {
+    getLastRow() { return 2; },
+    getRange() {
+      return {
+        getValues() {
+          return [["onboardingState", "pending"], ["suggestedTrackerSheet", "People"]];
+        },
+        setValues(values) { written = values; }
+      };
+    },
+    clearContents() {},
+    hideSheet() {}
+  };
+  const spreadsheet = {
+    getId() { return "sheet-id"; },
+    getSheetByName(name) { return name === "_SendMeBot" ? registrySheet : null; }
+  };
+  const sandbox = {
+    console,
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
+    ScriptApp: { getScriptId: () => "script-id" },
+    PropertiesService: {}
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(configSource, sandbox, { filename: "Config.js" });
+  vm.runInContext(workbookSetupSource, sandbox, { filename: "Setup.js" });
+  const result = sandbox.ensureSendMeBotInstallationRegistry_(spreadsheet);
+  assert.equal(result.onboardingState, "pending");
+  assert.equal(result.suggestedTrackerSheet, "People");
+  assert.equal(result.scriptId, "script-id");
+  assert.equal(Object.fromEntries(written).onboardingState, "pending");
+});
+
+test("pending onboarding gets one automatic prompt and a durable Continue setup menu item", () => {
+  assert.match(codeSource, /onboardingState === "pending"/);
+  assert.match(codeSource, /addItem\("Continue setup", "openSendMeBotWalkthrough"\)/);
+  assert.match(codeSource, /onboardingAutoPrompted !== "true"/);
+  assert.match(codeSource, /onboardingAutoPrompted: "true"/);
+  assert.match(codeSource, /createTemplateFromFile\("WalkthroughForm"\)/);
 });
 
 let failures = 0;

@@ -664,7 +664,9 @@ function getCellValue_(sheet, row, headers, headerName) {
 
 
 function getHeaders_(sheet) {
-  const raw = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const lastColumn = sheet.getLastColumn();
+  if (lastColumn < 1) return {};
+  const raw = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
   const headers = {};
 
   raw.forEach((header, index) => {

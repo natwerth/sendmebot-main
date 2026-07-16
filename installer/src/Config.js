@@ -1,4 +1,4 @@
-const SENDMEBOT_INSTALLER_VERSION = "1.0.0";
+const SENDMEBOT_INSTALLER_VERSION = "1.1.0";
 const SENDMEBOT_RESERVED_SHEET_NAMES = [
   "Tracker", "Templates", "Senders", "Sent", "_SendMeBot"
 ];

@@ -82,9 +82,61 @@ function copySelectedSheets_(source, destinationId, selectedIds) {
     const copiedSheet = destination.getSheetById(response.sheetId);
     const finalName = getAvailableImportedSheetName_(destination, sheet.getName());
     copiedSheet.setName(finalName);
-    copied.push({ sourceName: sheet.getName(), destinationName: finalName, sheetId: response.sheetId });
+    const headers = sheet.getLastColumn() > 0
+      ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0]
+      : [];
+    copied.push({
+      sourceName: sheet.getName(),
+      destinationName: finalName,
+      sheetId: response.sheetId,
+      hasUsableHeaders: headers.some(value => normalizeInstallerValue_(value))
+    });
   });
   return copied;
+}
+
+
+function getSuggestedTrackerSheet_(copied) {
+  const sheets = Array.isArray(copied) ? copied : [];
+  const namedTracker = sheets.find(item =>
+    normalizeInstallerValue_(item.sourceName).toLowerCase() === "tracker"
+  );
+  if (namedTracker) return namedTracker.destinationName;
+  const usable = sheets.find(item => item.hasUsableHeaders);
+  return usable ? usable.destinationName : "Tracker";
+}
+
+
+function markSendMeBotOnboarding_(destinationId, metadata) {
+  const destination = SpreadsheetApp.openById(destinationId);
+  let sheet = destination.getSheetByName("_SendMeBot");
+  if (!sheet) sheet = destination.insertSheet("_SendMeBot");
+
+  const existing = {};
+  if (sheet.getLastRow() > 0) {
+    sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues().forEach(row => {
+      const key = normalizeInstallerValue_(row[0]);
+      if (key) existing[key] = String(row[1] || "");
+    });
+  }
+
+  const settings = metadata || {};
+  const values = Object.assign({}, existing, {
+    onboardingState: "pending",
+    onboardingAutoPrompted: "false",
+    installMode: normalizeInstallerValue_(settings.installMode) || "new",
+    sourceSpreadsheetName: normalizeInstallerValue_(settings.sourceSpreadsheetName),
+    importedSheets: JSON.stringify(settings.importedSheets || []),
+    suggestedTrackerSheet: normalizeInstallerValue_(settings.suggestedTrackerSheet) || "Tracker",
+    onboardingCreatedAt: new Date().toISOString(),
+    onboardingCompletedAt: "",
+    testEmailSentAt: ""
+  });
+  const rows = Object.keys(values).sort().map(key => [key, values[key]]);
+  sheet.clearContents();
+  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+  sheet.hideSheet();
+  return values;
 }
 
 

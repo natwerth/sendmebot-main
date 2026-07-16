@@ -1,14 +1,20 @@
 function onOpen() {
+  let registry = null;
   try {
-    ensureSendMeBotInstallationRegistry_();
+    registry = ensureSendMeBotInstallationRegistry_();
   } catch (registryErr) {
     Logger.log("INSTALLATION REGISTRY ERROR: " + (registryErr.message || registryErr));
   }
 
   const environment = getSendMeBotEnvironmentConfig_();
-  const menu = SpreadsheetApp.getUi()
-    .createMenu(environment.brandName)
-    .addItem("Email selected now", "openEmailSelectedNowForm")
+  const onboardingPending = !!(registry && registry.onboardingState === "pending");
+  const menu = SpreadsheetApp.getUi().createMenu(environment.brandName);
+
+  if (onboardingPending) {
+    menu.addItem("Continue setup", "openSendMeBotWalkthrough").addSeparator();
+  }
+
+  menu.addItem("Email selected now", "openEmailSelectedNowForm")
     .addItem("Schedule selected", "openScheduleSelectedForm")
     .addSeparator()
     .addItem("New template", "openComposeTemplateForm")
@@ -24,6 +30,15 @@ function onOpen() {
   }
 
   menu.addToUi();
+
+  if (onboardingPending && registry.onboardingAutoPrompted !== "true") {
+    try {
+      updateSendMeBotInstallationRegistry_({ onboardingAutoPrompted: "true" });
+      openSendMeBotWalkthrough();
+    } catch (walkthroughErr) {
+      Logger.log("WALKTHROUGH PROMPT ERROR: " + (walkthroughErr.message || walkthroughErr));
+    }
+  }
 }
 
 function onEdit(e) {
@@ -144,6 +159,16 @@ function openSetupForm() {
   template.contextJson = JSON.stringify(getSendMeBotSetupContext_());
   const html = template.evaluate().setWidth(340).setHeight(220);
   SpreadsheetApp.getUi().showModalDialog(html, "SendMeBot setup");
+}
+
+
+function openSendMeBotWalkthrough() {
+  const html = HtmlService
+    .createTemplateFromFile("WalkthroughForm")
+    .evaluate()
+    .setWidth(520)
+    .setHeight(620);
+  SpreadsheetApp.getUi().showModalDialog(html, "Welcome to SendMeBot");
 }
 
 // --- Assistant sidebar ---

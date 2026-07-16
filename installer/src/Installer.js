@@ -44,12 +44,24 @@ function createNewSendMeBotWorkbook(e) {
   const name = normalizeInstallerValue_(getInstallerFormValue_(e, "newWorkbookName")) || "SendMeBot";
   return runInstallOperation_("new", "", name, function() {
     const spreadsheetId = copySendMeBotTemplate_(name);
-    return {
+    const result = {
       spreadsheetId: spreadsheetId,
       url: "https://docs.google.com/spreadsheets/d/" + spreadsheetId + "/edit",
       warnings: [],
       incomplete: false
     };
+    try {
+      markSendMeBotOnboarding_(spreadsheetId, {
+        installMode: "new",
+        sourceSpreadsheetName: "",
+        importedSheets: [],
+        suggestedTrackerSheet: "Tracker"
+      });
+    } catch (err) {
+      result.warnings.push("The workbook was created, but guided setup could not be initialized: " + (err.message || err));
+      result.incomplete = true;
+    }
+    return result;
   });
 }
 
@@ -64,13 +76,20 @@ function installIntoCurrentWorkbook(e) {
   if (scan.warnings.length && !accepted) {
     return notifyInstaller_("Review the compatibility warnings and confirm before continuing.");
   }
-  const destinationName = source.getName() + " — SendMeBot";
+  const requestedName = normalizeInstallerValue_(getInstallerFormValue_(e, "destinationWorkbookName"));
+  const destinationName = requestedName || source.getName() + " — SendMeBot";
 
   return runInstallOperation_("migrate", source.getId(), destinationName, function() {
     const destinationId = copySendMeBotTemplate_(destinationName);
     const url = "https://docs.google.com/spreadsheets/d/" + destinationId + "/edit";
     try {
       const copied = copySelectedSheets_(source, destinationId, selectedIds);
+      markSendMeBotOnboarding_(destinationId, {
+        installMode: "migrate",
+        sourceSpreadsheetName: source.getName(),
+        importedSheets: copied,
+        suggestedTrackerSheet: getSuggestedTrackerSheet_(copied)
+      });
       const warnings = auditCopiedSheets_(destinationId, copied);
       return {
         spreadsheetId: destinationId,

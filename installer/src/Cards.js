@@ -14,26 +14,39 @@ function buildInstallerHomeCard_(e) {
   const hasFileScope = sheetsContext.hasFileScope;
   const ss = getCurrentInstallerSpreadsheet_(event);
   const sourceName = sheetsContext.title || "this spreadsheet";
-  const section = CardService.newCardSection()
-    .setHeader("Create a SendMeBot workbook")
-    .addWidget(CardService.newTextInput()
-      .setFieldName("newWorkbookName")
-      .setTitle("Workbook name")
-      .setValue("SendMeBot"))
-    .addWidget(CardService.newTextButton()
-      .setText("Create new SendMeBot spreadsheet")
-      .setOnClickAction(CardService.newAction().setFunctionName("createNewSendMeBotWorkbook")));
+  const section = CardService.newCardSection();
 
   if (!hasFileScope) {
-    section.addWidget(CardService.newDivider());
-    section.addWidget(CardService.newTextButton()
+    section
+      .setHeader("Create a SendMeBot workbook")
+      .addWidget(CardService.newTextInput()
+        .setFieldName("newWorkbookName")
+        .setTitle("Workbook name")
+        .setValue("SendMeBot"))
+      .addWidget(CardService.newTextButton()
+        .setText("Create fresh SendMeBot workbook")
+        .setOnClickAction(CardService.newAction().setFunctionName("createNewSendMeBotWorkbook")))
+      .addWidget(CardService.newDivider())
+      .addWidget(CardService.newTextParagraph().setText(
+        "To preserve sheets from this workbook, grant SendMeBot access to it first."
+      ))
+      .addWidget(CardService.newTextButton()
       .setText("Grant access to this spreadsheet")
       .setOnClickAction(CardService.newAction().setFunctionName("requestCurrentFileScope")));
-  } else if (ss) {
-    section.addWidget(CardService.newDivider());
-    section.addWidget(CardService.newTextButton()
-      .setText("Install SendMeBot into " + sourceName)
-      .setOnClickAction(CardService.newAction().setFunctionName("showWorkbookMigrationOptions")));
+  } else {
+    section
+      .setHeader("Install SendMeBot into " + sourceName)
+      .addWidget(CardService.newTextParagraph().setText(
+        "SendMeBot will create a new workbook and copy your selected sheets. The original will not be changed."
+      ))
+      .addWidget(CardService.newTextInput()
+        .setFieldName("newWorkbookName")
+        .setTitle("Workbook name")
+        .setValue(sourceName + " — SendMeBot"))
+      .addWidget(CardService.newTextButton()
+        .setText("Choose sheets to install")
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setOnClickAction(CardService.newAction().setFunctionName("showWorkbookMigrationOptions")));
   }
 
   const builder = CardService.newCardBuilder()
@@ -86,11 +99,17 @@ function showWorkbookMigrationOptions(e) {
     selection.addItem(sheet.name, String(sheet.sheetId), true);
   });
 
+  const requestedName = normalizeInstallerValue_(getInstallerFormValue_(e, "newWorkbookName"));
+  const destinationName = requestedName || ss.getName() + " — SendMeBot";
   const section = CardService.newCardSection()
     .setHeader("Install SendMeBot into " + ss.getName())
     .addWidget(CardService.newTextParagraph().setText(
       "A new SendMeBot workbook will be created. Your original spreadsheet will not be changed."
     ))
+    .addWidget(CardService.newTextInput()
+      .setFieldName("destinationWorkbookName")
+      .setTitle("New workbook name")
+      .setValue(destinationName))
     .addWidget(selection);
 
   if (scan.warnings.length) {
@@ -129,7 +148,7 @@ function buildInstallCompleteResponse_(result) {
   const section = CardService.newCardSection()
     .addWidget(CardService.newTextParagraph().setText(message))
     .addWidget(CardService.newTextParagraph().setText(
-      "Open the new workbook, then use SendMeBot → Setup to choose the tracker and Record ID column."
+      "Open the new workbook to continue the guided tracker, sender, template, and test-email setup."
     ));
 
   if (result.warnings && result.warnings.length) {

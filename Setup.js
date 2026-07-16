@@ -131,29 +131,17 @@ function ensureSendMeBotInstallationRegistry_(spreadsheet) {
   let sheet = ss.getSheetByName(SENDMEBOT_INTERNAL_SHEET);
   if (!sheet) sheet = ss.insertSheet(SENDMEBOT_INTERNAL_SHEET);
 
-  const existing = {};
-  if (sheet.getLastRow() > 0) {
-    sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues().forEach(row => {
-      const key = String(row[0] || "").trim();
-      if (key) existing[key] = String(row[1] || "");
-    });
-  }
-
-  const values = [
-    ["formatVersion", SENDMEBOT_INSTALL_FORMAT_VERSION],
-    ["appId", SENDMEBOT_APP_ID],
-    ["appVersion", SENDMEBOT_APP_VERSION],
-    ["scriptId", ScriptApp.getScriptId()],
-    ["spreadsheetId", ss.getId()],
-    ["registeredAt", existing.registeredAt || new Date().toISOString()]
-  ];
-  sheet.clearContents();
-  sheet.getRange(1, 1, values.length, 2).setValues(values);
-  sheet.hideSheet();
-  return values.reduce((result, row) => {
-    result[row[0]] = row[1];
-    return result;
-  }, {});
+  const existing = readSendMeBotRegistrySheet_(sheet);
+  const registry = Object.assign({}, existing, {
+    formatVersion: String(SENDMEBOT_INSTALL_FORMAT_VERSION),
+    appId: SENDMEBOT_APP_ID,
+    appVersion: SENDMEBOT_APP_VERSION,
+    scriptId: ScriptApp.getScriptId(),
+    spreadsheetId: ss.getId(),
+    registeredAt: existing.registeredAt || new Date().toISOString()
+  });
+  writeSendMeBotRegistrySheet_(sheet, registry);
+  return registry;
 }
 
 
@@ -161,10 +149,35 @@ function getSendMeBotInstallationRegistry_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SENDMEBOT_INTERNAL_SHEET);
   if (!sheet) return null;
+  return readSendMeBotRegistrySheet_(sheet);
+}
+
+
+function readSendMeBotRegistrySheet_(sheet) {
   const result = {};
+  if (!sheet || sheet.getLastRow() < 1) return result;
   sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues().forEach(row => {
     const key = String(row[0] || "").trim();
     if (key) result[key] = String(row[1] || "");
   });
   return result;
+}
+
+
+function writeSendMeBotRegistrySheet_(sheet, registry) {
+  const values = Object.keys(registry || {}).sort().map(key => [key, String(registry[key] || "")]);
+  sheet.clearContents();
+  if (values.length) sheet.getRange(1, 1, values.length, 2).setValues(values);
+  sheet.hideSheet();
+  return registry;
+}
+
+
+function updateSendMeBotInstallationRegistry_(updates) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SENDMEBOT_INTERNAL_SHEET);
+  if (!sheet) sheet = ss.insertSheet(SENDMEBOT_INTERNAL_SHEET);
+  const registry = Object.assign({}, readSendMeBotRegistrySheet_(sheet), updates || {});
+  writeSendMeBotRegistrySheet_(sheet, registry);
+  return registry;
 }

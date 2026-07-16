@@ -63,6 +63,42 @@ const destination = { getSheetByName: name => destinationNames.has(name) ? {} : 
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "Tracker"), "Tracker (Imported) 2");
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "People"), "People");
 
+assert.equal(sandbox.getSuggestedTrackerSheet_([
+  { sourceName: "People", destinationName: "People", hasUsableHeaders: true },
+  { sourceName: "Tracker", destinationName: "Tracker (Imported)", hasUsableHeaders: true }
+]), "Tracker (Imported)");
+assert.equal(sandbox.getSuggestedTrackerSheet_([
+  { sourceName: "Notes", destinationName: "Notes", hasUsableHeaders: false },
+  { sourceName: "People", destinationName: "People", hasUsableHeaders: true }
+]), "People");
+assert.equal(sandbox.getSuggestedTrackerSheet_([]), "Tracker");
+
+let onboardingRows = [];
+const onboardingSheet = {
+  getLastRow: () => 1,
+  getRange: () => ({
+    getValues: () => [["appId", "sendmebot"]],
+    setValues: values => { onboardingRows = values; }
+  }),
+  clearContents() {},
+  hideSheet() {}
+};
+sandbox.SpreadsheetApp.openById = () => ({
+  getSheetByName: name => name === "_SendMeBot" ? onboardingSheet : null
+});
+const onboarding = sandbox.markSendMeBotOnboarding_("destination-id", {
+  installMode: "migrate",
+  sourceSpreadsheetName: "Original",
+  importedSheets: [{ destinationName: "People" }],
+  suggestedTrackerSheet: "People"
+});
+assert.equal(onboarding.appId, "sendmebot");
+assert.equal(onboarding.onboardingState, "pending");
+assert.equal(onboarding.onboardingAutoPrompted, "false");
+assert.equal(onboarding.suggestedTrackerSheet, "People");
+assert.equal(Object.fromEntries(onboardingRows).sourceSpreadsheetName, "Original");
+sandbox.SpreadsheetApp.openById = id => ({ id });
+
 const missingContext = sandbox.getInstallerSheetsContext_({});
 assert.equal(missingContext.hasFileScope, false);
 assert.equal(missingContext.spreadsheetId, "");
@@ -95,6 +131,9 @@ assert.equal(JSON.stringify(manifest).includes("Gmail"), false);
 const allSource = sources.join("\n");
 assert.doesNotMatch(allSource, /projects\.create|SENDMEBOT_SOURCE_SCRIPT_ID/);
 assert.match(allSource, /Install SendMeBot into /);
+assert.match(allSource, /sourceName \+ " — SendMeBot"/);
+assert.match(allSource, /destinationWorkbookName/);
+assert.match(allSource, /markSendMeBotOnboarding_/);
 assert.match(allSource, /original spreadsheet will not be changed/i);
 assert.doesNotMatch(allSource, /getActiveSpreadsheet\s*\(/);
 assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);
