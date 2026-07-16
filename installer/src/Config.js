@@ -40,9 +40,22 @@ function getInstallerFormValues_(event, key) {
 }
 
 
-function getCurrentInstallerSpreadsheet_() {
+function getInstallerSheetsContext_(event) {
+  const sheets = event && event.sheets ? event.sheets : {};
+  const hasFileScope = sheets.addonHasFileScopePermission === true;
+  return {
+    hasFileScope: hasFileScope,
+    spreadsheetId: hasFileScope ? normalizeInstallerValue_(sheets.id) : "",
+    title: hasFileScope ? normalizeInstallerValue_(sheets.title) : ""
+  };
+}
+
+
+function getCurrentInstallerSpreadsheet_(event) {
+  const context = getInstallerSheetsContext_(event);
+  if (!context.hasFileScope || !context.spreadsheetId) return null;
   try {
-    return SpreadsheetApp.getActiveSpreadsheet();
+    return SpreadsheetApp.openById(context.spreadsheetId);
   } catch (err) {
     return null;
   }

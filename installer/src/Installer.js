@@ -55,7 +55,7 @@ function createNewSendMeBotWorkbook(e) {
 
 
 function installIntoCurrentWorkbook(e) {
-  const source = getCurrentInstallerSpreadsheet_();
+  const source = getCurrentInstallerSpreadsheet_(e);
   if (!source) return notifyInstaller_("Open the source spreadsheet and try again.");
   const selectedIds = getInstallerFormValues_(e, "sheetIds");
   if (!selectedIds.length) return notifyInstaller_("Select at least one sheet to copy.");

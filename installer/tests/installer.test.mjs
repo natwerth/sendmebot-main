@@ -25,7 +25,10 @@ const sandbox = {
   console,
   Date,
   JSON,
-  SpreadsheetApp: { ProtectionType: { RANGE: "RANGE", SHEET: "SHEET" } },
+  SpreadsheetApp: {
+    ProtectionType: { RANGE: "RANGE", SHEET: "SHEET" },
+    openById: id => ({ id })
+  },
   Utilities: {
     DigestAlgorithm: { SHA_256: "SHA_256" },
     computeDigest: value => Array.from(Buffer.from(value)),
@@ -60,6 +63,30 @@ const destination = { getSheetByName: name => destinationNames.has(name) ? {} : 
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "Tracker"), "Tracker (Imported) 2");
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "People"), "People");
 
+const missingContext = sandbox.getInstallerSheetsContext_({});
+assert.equal(missingContext.hasFileScope, false);
+assert.equal(missingContext.spreadsheetId, "");
+assert.equal(sandbox.getCurrentInstallerSpreadsheet_({}), null);
+
+const deniedContext = sandbox.getInstallerSheetsContext_({
+  sheets: { addonHasFileScopePermission: false, id: "must-not-be-used", title: "Private" }
+});
+assert.equal(deniedContext.hasFileScope, false);
+assert.equal(deniedContext.spreadsheetId, "");
+
+const grantedEvent = {
+  sheets: {
+    addonHasFileScopePermission: true,
+    id: "sheet-id",
+    title: "Authorized workbook"
+  }
+};
+const grantedContext = sandbox.getInstallerSheetsContext_(grantedEvent);
+assert.equal(grantedContext.hasFileScope, true);
+assert.equal(grantedContext.spreadsheetId, "sheet-id");
+assert.equal(grantedContext.title, "Authorized workbook");
+assert.equal(sandbox.getCurrentInstallerSpreadsheet_(grantedEvent).id, "sheet-id");
+
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "appsscript.json"), "utf8"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/script.projects"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/drive.file"));
@@ -69,5 +96,7 @@ const allSource = sources.join("\n");
 assert.doesNotMatch(allSource, /projects\.create|SENDMEBOT_SOURCE_SCRIPT_ID/);
 assert.match(allSource, /Install SendMeBot into /);
 assert.match(allSource, /original spreadsheet will not be changed/i);
+assert.doesNotMatch(allSource, /getActiveSpreadsheet\s*\(/);
+assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);
 
-console.log("PASS installer scans safely, handles collisions, and contains no legacy project injection");
+console.log("PASS installer uses explicit file scope, scans safely, handles collisions, and contains no legacy project injection");

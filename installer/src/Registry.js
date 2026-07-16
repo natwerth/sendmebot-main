@@ -138,8 +138,8 @@ function verifyUpdateTarget_(spreadsheetId, registry) {
 }
 
 
-function enableAutomaticUpdates() {
-  const ss = getCurrentInstallerSpreadsheet_();
+function enableAutomaticUpdates(e) {
+  const ss = getCurrentInstallerSpreadsheet_(e);
   if (!ss) return notifyInstaller_("Open an installed SendMeBot spreadsheet first.");
   try {
     const registry = readSendMeBotRegistry_(ss);
@@ -161,8 +161,8 @@ function enableAutomaticUpdates() {
 }
 
 
-function disableAutomaticUpdates() {
-  const ss = getCurrentInstallerSpreadsheet_();
+function disableAutomaticUpdates(e) {
+  const ss = getCurrentInstallerSpreadsheet_(e);
   if (!ss) return notifyInstaller_("Open an installed SendMeBot spreadsheet first.");
   removeUpdateTarget_(ss.getId());
   return notifyInstaller_("Automatic updates are disabled for this workbook.");

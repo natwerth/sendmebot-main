@@ -10,11 +10,10 @@ function onFileScopeGranted(e) {
 
 function buildInstallerHomeCard_(e) {
   const event = e || {};
-  const hasFileScope = !(
-    event.sheets && event.sheets.addonHasFileScopePermission === false
-  );
-  const ss = hasFileScope ? getCurrentInstallerSpreadsheet_() : null;
-  const sourceName = ss ? ss.getName() : "this spreadsheet";
+  const sheetsContext = getInstallerSheetsContext_(event);
+  const hasFileScope = sheetsContext.hasFileScope;
+  const ss = getCurrentInstallerSpreadsheet_(event);
+  const sourceName = sheetsContext.title || "this spreadsheet";
   const section = CardService.newCardSection()
     .setHeader("Create a SendMeBot workbook")
     .addWidget(CardService.newTextInput()
@@ -74,8 +73,8 @@ function requestCurrentFileScope() {
 }
 
 
-function showWorkbookMigrationOptions() {
-  const ss = getCurrentInstallerSpreadsheet_();
+function showWorkbookMigrationOptions(e) {
+  const ss = getCurrentInstallerSpreadsheet_(e);
   if (!ss) return notifyInstaller_("Open a Google Sheet and try again.");
   const scan = scanWorkbookCompatibility_(ss);
   const selection = CardService.newSelectionInput()
