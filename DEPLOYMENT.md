@@ -7,8 +7,8 @@ There is intentionally no tracked `.clasp.json`. A bare `clasp push` must fail.
 1. Copy `config/targets.example.json` to ignored `config/targets.local.json`.
 2. Keep each real clasp profile ignored and set its `rootDir`:
    - bound and template profiles: repository root;
-   - add-on development: `installer/dist/development`;
-   - add-on production: `installer/dist/production`.
+   - add-on development profile at `installer/.clasp.development.json`: `dist/development`;
+   - add-on production profile at `installer/.clasp.production.json`: `dist/production`.
 3. Copy `config/environments.example.json` to ignored `config/environments.local.json` and enter the versioned template Spreadsheet IDs.
 
 Inspect a target without changing it:
