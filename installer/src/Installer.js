@@ -3,7 +3,12 @@ const SENDMEBOT_INSTALL_OPERATION_TTL_MS = 2 * 60 * 1000;
 
 
 function getInstallOperationKey_(kind, sourceId, name) {
-  const raw = [kind, sourceId || "none", name || "SendMeBot"].join("|");
+  const raw = [
+    SENDMEBOT_INSTALLER_VERSION,
+    kind,
+    sourceId || "none",
+    name || "SendMeBot"
+  ].join("|");
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw);
   return SENDMEBOT_INSTALL_OPERATION_PREFIX + Utilities.base64EncodeWebSafe(digest).slice(0, 24);
 }
@@ -114,29 +119,40 @@ function installCurrentWorkbookSheets_(e, source, selectedIds) {
   return runInstallOperation_(operationKind, source.getId(), destinationName, function() {
     const destinationId = copySendMeBotTemplate_(destinationName);
     const url = "https://docs.google.com/spreadsheets/d/" + destinationId + "/edit";
+    let copied = [];
+    const warnings = [];
+
     try {
-      const copied = copySelectedSheets_(source, destinationId, selectedIds);
+      const migration = copySelectedSheets_(source, destinationId, selectedIds);
+      copied = migration.copied;
+      warnings.push.apply(warnings, migration.warnings);
+    } catch (err) {
+      warnings.push("Sheet migration stopped early: " + (err.message || err));
+    }
+
+    try {
       markSendMeBotOnboarding_(destinationId, {
         installMode: "migrate",
         sourceSpreadsheetName: source.getName(),
         importedSheets: copied,
         suggestedTrackerSheet: getSuggestedTrackerSheet_(copied)
       });
-      const warnings = auditCopiedSheets_(destinationId, copied);
-      return {
-        spreadsheetId: destinationId,
-        url: url,
-        warnings: warnings,
-        incomplete: warnings.length > 0
-      };
     } catch (err) {
-      return {
-        spreadsheetId: destinationId,
-        url: url,
-        warnings: ["Sheet migration stopped early: " + (err.message || err)],
-        incomplete: true
-      };
+      warnings.push("Guided setup could not be initialized: " + (err.message || err));
     }
+
+    try {
+      warnings.push.apply(warnings, auditCopiedSheets_(destinationId, copied));
+    } catch (err) {
+      warnings.push("Copied sheets could not be audited: " + (err.message || err));
+    }
+
+    return {
+      spreadsheetId: destinationId,
+      url: url,
+      warnings: warnings,
+      incomplete: warnings.length > 0
+    };
   });
 }
 

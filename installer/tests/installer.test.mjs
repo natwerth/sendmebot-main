@@ -63,6 +63,9 @@ const destinationNames = new Set(["Tracker", "Tracker (Imported)"]);
 const destination = { getSheetByName: name => destinationNames.has(name) ? {} : null };
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "Tracker"), "Tracker (Imported) 2");
 assert.equal(sandbox.getAvailableImportedSheetName_(destination, "People"), "People");
+assert.equal(sandbox.getInstallerColumnLetter_(1), "A");
+assert.equal(sandbox.getInstallerColumnLetter_(26), "Z");
+assert.equal(sandbox.getInstallerColumnLetter_(27), "AA");
 
 assert.equal(sandbox.getSuggestedTrackerSheet_([
   { sourceName: "People", destinationName: "People", hasUsableHeaders: true },
@@ -81,18 +84,31 @@ assert.deepEqual(
 );
 
 let onboardingRows = [];
-const onboardingSheet = {
-  getLastRow: () => 1,
-  getRange: () => ({
-    getValues: () => [["appId", "sendmebot"]],
-    setValues: values => { onboardingRows = values; }
-  }),
-  clearContents() {},
-  hideSheet() {}
+const sheetsApiCalls = [];
+sandbox.Sheets = {
+  Spreadsheets: {
+    get: () => ({
+      sheets: [{ properties: { sheetId: 99, title: "_SendMeBot", hidden: false } }]
+    }),
+    batchUpdate: (resource, spreadsheetId) => {
+      sheetsApiCalls.push({ method: "batchUpdate", resource, spreadsheetId });
+      return { replies: [] };
+    },
+    Values: {
+      get: () => ({ values: [["appId", "sendmebot"]] }),
+      clear: (resource, spreadsheetId, range) => {
+        sheetsApiCalls.push({ method: "clear", resource, spreadsheetId, range });
+      },
+      update: (resource, spreadsheetId, range, options) => {
+        onboardingRows = resource.values;
+        sheetsApiCalls.push({ method: "update", resource, spreadsheetId, range, options });
+      }
+    },
+    Sheets: {
+      copyTo: () => ({ sheetId: 101 })
+    }
+  }
 };
-sandbox.SpreadsheetApp.openById = () => ({
-  getSheetByName: name => name === "_SendMeBot" ? onboardingSheet : null
-});
 const onboarding = sandbox.markSendMeBotOnboarding_("destination-id", {
   installMode: "migrate",
   sourceSpreadsheetName: "Original",
@@ -104,7 +120,32 @@ assert.equal(onboarding.onboardingState, "pending");
 assert.equal(onboarding.onboardingAutoPrompted, "false");
 assert.equal(onboarding.suggestedTrackerSheet, "People");
 assert.equal(Object.fromEntries(onboardingRows).sourceSpreadsheetName, "Original");
-sandbox.SpreadsheetApp.openById = id => ({ id });
+assert.equal(sheetsApiCalls.some(call => call.method === "update"), true);
+assert.equal(sheetsApiCalls.some(call =>
+  call.method === "batchUpdate" && call.resource.requests[0].updateSheetProperties
+), true);
+
+let renamedSheet = null;
+sandbox.Sheets.Spreadsheets.get = () => ({
+  sheets: [{ properties: { sheetId: 1, title: "Tracker" } }]
+});
+sandbox.Sheets.Spreadsheets.batchUpdate = resource => {
+  const update = resource.requests[0].updateSheetProperties;
+  if (update) renamedSheet = update.properties;
+  return { replies: [] };
+};
+const copiedResult = sandbox.copySelectedSheets_({
+  getId: () => "source-id",
+  getSheets: () => [{
+    getName: () => "Tracker",
+    getSheetId: () => 44,
+    getLastColumn: () => 2,
+    getRange: () => ({ getDisplayValues: () => [["Name", "Email"]] })
+  }]
+}, "destination-id", ["44"]);
+assert.equal(copiedResult.warnings.length, 0);
+assert.equal(copiedResult.copied[0].destinationName, "Tracker (Imported)");
+assert.equal(renamedSheet.title, "Tracker (Imported)");
 
 const missingContext = sandbox.getInstallerSheetsContext_({});
 assert.equal(missingContext.hasFileScope, false);
@@ -166,6 +207,22 @@ assert.equal(sandbox.getCurrentInstallerSpreadsheet_({
 sandbox.SpreadsheetApp.getActiveSpreadsheet = () => null;
 sandbox.SpreadsheetApp.openById = id => ({ id });
 
+let onboardingAttemptedAfterCopyFailure = false;
+sandbox.runInstallOperation_ = (kind, sourceId, name, callback) => callback();
+sandbox.copySendMeBotTemplate_ = () => "failed-copy-destination";
+sandbox.copySelectedSheets_ = () => { throw new Error("copy failed"); };
+sandbox.markSendMeBotOnboarding_ = () => {
+  onboardingAttemptedAfterCopyFailure = true;
+};
+sandbox.auditCopiedSheets_ = () => [];
+const partialInstall = sandbox.installCurrentWorkbookSheets_({}, {
+  getId: () => "source-id",
+  getName: () => "Source workbook"
+}, ["1"]);
+assert.equal(onboardingAttemptedAfterCopyFailure, true);
+assert.equal(partialInstall.incomplete, true);
+assert.equal(partialInstall.warnings.some(value => /copy failed/.test(value)), true);
+
 const fullWorkbook = { getId: () => "full-id", getName: () => "Full workbook" };
 let fullInstallIds = [];
 sandbox.getCurrentInstallerSpreadsheet_ = () => fullWorkbook;
@@ -193,9 +250,11 @@ assert.equal(sandbox.installEntireCurrentWorkbook({}), "review-card");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "appsscript.json"), "utf8"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/script.projects"));
 assert.ok(manifest.oauthScopes.includes("https://www.googleapis.com/auth/drive.file"));
+assert.equal(manifest.oauthScopes.includes("https://www.googleapis.com/auth/spreadsheets"), false);
 assert.equal(JSON.stringify(manifest).includes("Gmail"), false);
 
 const allSource = sources.join("\n");
+const migrationSource = sources[1];
 assert.doesNotMatch(allSource, /projects\.create|SENDMEBOT_SOURCE_SCRIPT_ID/);
 assert.match(allSource, /Install SendMeBot into /);
 assert.match(allSource, /sourceName \+ " — SendMeBot"/);
@@ -211,5 +270,9 @@ assert.match(allSource, /original spreadsheet will not be changed/i);
 assert.match(allSource, /getActiveSpreadsheet\s*\(\)/);
 assert.match(allSource, /active\.getId\(\)[\s\S]*context\.spreadsheetId/);
 assert.match(allSource, /addonHasFileScopePermission\s*===\s*true/);
+assert.doesNotMatch(migrationSource, /SpreadsheetApp\.openById/);
+assert.match(migrationSource, /Sheets\.Spreadsheets\.Values\.update/);
+assert.match(migrationSource, /Sheets\.Spreadsheets\.batchUpdate/);
+assert.match(migrationSource, /Sheets\.Spreadsheets\.Sheets\.copyTo/);
 
 console.log("PASS installer uses explicit file scope, scans safely, handles collisions, and contains no legacy project injection");
